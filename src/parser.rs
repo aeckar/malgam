@@ -1,9 +1,8 @@
 //! Don't check for UTF-8 correctness; leave that to the user.
 
-use crate::char_ext::CharExt;
 use crate::slice_ext::SliceExt;
 use crate::tape::Tape;
-use crate::{FlankType, NumberingType, Token, TokenType};
+use crate::{InlineFormat, Numbering, Token, TokenType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParserConfig {
@@ -32,11 +31,11 @@ pub struct Parser<'a> {
     /// have been resolved but not yet paired with a closer.
     ///
     /// The first element of each pair is the flank type enum.
-    unclosed_pairs: Vec<(u8, usize)>,
+    open_fmts: Vec<(u8, usize)>,
 
     ///the tokens are generated in the pre-pass, and
     /// then used in the main pass to generate the output.
-    tokens: Vec<Token>,
+    tokens: Vec<Token<'a>>,
 
     /// The input text.
     pub input: &'a [u8],
@@ -50,7 +49,7 @@ impl<'a> Parser<'a> {
         Self {
             in_alt_txt: false,
             pgraph_spacing: 2,
-            unclosed_pairs: Vec::new(),
+            open_fmts: Vec::new(),
             tokens: Vec::new(),
             pairs: Vec::new(),
             input,
@@ -58,10 +57,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Pushes the token Inside the input between the start and end indices.
+    /// Pushes the token nside the input between the start and end indices.
     /// The end index is exclusive.   
     #[inline]
-    fn emit(&mut self, ty: TokenType, start: usize, end: usize) {
+    fn emit(&mut self, ty: TokenType<'a>, start: usize, end: usize) {
         self.tokens.push(Token::new(ty, start, end));
     }
 
@@ -69,85 +68,121 @@ impl<'a> Parser<'a> {
     /// and has the given length.
     //do not return tape for convenience, as `pos` might need to be adjusted before exiting handler.
     #[inline]
-    fn emit_cur(&mut self, tape: Tape, ty: TokenType, len: usize) {
+    fn emit_cur(&mut self, tape: Tape, ty: TokenType<'a>, len: usize) {
         self.tokens.push(Token::new(ty, tape.pos, tape.pos + len));
     }
 
-    /// Attempts to emit a token if the character cluster
+    //entry point
+    pub fn parse(&mut self) {
+        self.pass_1();
+        self.pass_2();
+    }
+
+    // ################################## PASS 2 ##################################
+
+    //here, we have all the meaningful virtual tokens found
+    fn pass_2(&mut self) {
+        // I don't know what to do with the pair heap yet.
+        // However, just iterate over it. Match the position to the next one in the virtual tokens.
+        let mut tape = Tape::new(self.input);
+        let mut read = 0;
+        let mut start = 0;
+        let mut pos = 0;
+        while read < self.tokens.len() {    // collect plaintext tokens
+            let next = self.tokens[read];
+            if next.start == pos {
+                read += 1;
+                pos += next.len();
+                tape.raw[];
+            }
+        }
+        ""
+    }
+
+    // ################################## PASS 1 ##################################
+
+        /// Attempts to emit a token if the character cluster
     /// belongs to a flanking token, such as an inline format or link.
     ///
-    /// `start` is passed to determine the first character of the cluster.
-    /// The current position should be the last character in the cluster.
+    /// The current position should be the first character in the cluster.
     /// Returns `None` if a token was not emitted.
     ///
     /// If `None` is not returned, the length of `self.unclosed_pairs` is always modified
     /// and the cursor of the returned tape is left at the final character of the cluster.
     #[must_use]
-    fn try_emit_flank(
-        &mut self,
-        mut tape: Tape<'a>,
-        start: usize,
-        len: usize,
-        ty: u8,
-    ) -> Option<Tape<'a>> {
+    fn try_pair_cur(&mut self, mut tape: Tape<'a>, mask: u8) -> Option<Tape<'a>> {
+        const BOLD_ITALIC_MASK: u8 = InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG;
+        const BOLD_TY: TokenType<'static> = TokenType::InlineFormat {
+            ty: InlineFormat::Bold,
+        };
+        const ITALIC_TY: TokenType<'static> = TokenType::InlineFormat {
+            ty: InlineFormat::Italic,
+        };
+
+        let start = tape.pos;
+        let len = InlineFormat::len(mask);
         if tape.is_l_clear(start) && !tape.is_r_clear(tape.pos) {
             // open
-            self.unclosed_pairs.push((ty, start));
+            // lack of lookahead prevents bottleneck
+            self.open_fmts.push((mask, start));
             tape.pos += len - 1;
             return Some(tape);
         } else if tape.is_r_clear(start)
-            && self
-                .unclosed_pairs
-                .last()
-                .is_some_and(|(t, _)| *t & ty != 0)
+            && self.open_fmts.last().is_some_and(|(t, _)| *t & mask != 0)
         {
             // close
-            let (open_fty, pair_start) = self.unclosed_pairs.pop().unwrap();
-            self.pairs.push((pair_start, start + len));
-            if ty == FlankType::BOLD | FlankType::ITALIC {
-                let open_tty = if open_fty == FlankType::BOLD {
-                    TokenType::Bold
-                } else {
-                    TokenType::Italic
+            let (open_mask, open_pos) = self.open_fmts.pop().unwrap();
+            let open_len = InlineFormat::len(open_mask);
+            self.pairs.push((open_pos, start + len));
+            // unsorted tokens don't matter since tokens are sorted after Pass 1
+            if (mask & open_mask).ilog2() == 1 {    // basic pair
+                let ty = TokenType::InlineFormat {
+                    ty: InlineFormat::from_flag(open_mask),
                 };
-                self.emit_cur(tape, open_tty, len);
-                if open_fty == FlankType::BOLD {
-                    tape.pos -= 1; // precede trailing '*'
+                self.emit(ty, open_pos, open_pos + len);
+                self.emit_cur(tape, ty, open_len);
+                tape.pos += open_len;
+                // if mask == BOLD_ITALIC_MASK: stop at next format marker appended to this cluster
+            } else if mask == BOLD_ITALIC_MASK && open_mask == BOLD_ITALIC_MASK {
+                self.emit(BOLD_TY, open_pos, open_pos + 2);
+                self.emit(ITALIC_TY, open_pos + 2, open_pos + 3);
+                self.emit_cur(tape, ITALIC_TY, 1);
+                self.emit(BOLD_TY, start + 1, start + 3);
+            } else {    // open_mask == BOLD_ITALIC_MASK
+                if mask == InlineFormat::BOLD_FLAG {
+                    self.open_fmts.push((InlineFormat::ITALIC_FLAG, open_pos));
+                    self.emit(BOLD_TY, open_pos + 1, open_pos + 3);
+                    self.emit_cur(tape, BOLD_TY, 2);
                 } else {
-                    tape.pos -= 2; // precede trailing '**'
-                };
-            } else {
-                // IMPORTANT: assumes u8 bitflags
-                self.emit_cur(
-                    tape,
-                    TokenType::FLANK[open_fty.ilog2() as usize].clone(),
-                    len,
-                );
+                    self.open_fmts.push((InlineFormat::BOLD_FLAG, open_pos));
+                    self.emit(ITALIC_TY, open_pos + 2, open_pos + 3);
+                    self.emit_cur(tape, ITALIC_TY, 1);
+                }
             }
-            tape.pos += len - 1;
             return Some(tape);
         }
         None
     }
 
-    /// Resolves all opener-closer pairs in the input and
-    /// stores their positions in the `pairs` field.
-    ///
     /// todo
-    /// design pattern here
-    /// closer, opener terminology
-    /// what is a "character cluster"?
-    /// what is clearance?
-    /// returning None Relinquishes the need to reset the position to the start.
-    //do not trim trailing ws--newlines are sig
-    pub fn pass_1(&mut self, mut tape: Tape<'a>) {
+    fn pass_1(&mut self) {
+        let mut tape = Tape::new(self.input);
         // Because these symbols may show up in prose,
         // we should expect them to most likely be plain text first
         while let Some(&ch) = self.input.get(tape.pos) {
             let next_tape: Option<Tape<'a>> = match ch {
                 b'\n' => {
                     self.pgraph_spacing = 2;
-                    None
+                    self.emit_cur(tape, TokenType::Newline, 1);
+                    // Returning a positive result even though the cursor hasn't moved
+                    // results in a negligible performance hit
+                    // from copying the tape data structure.
+                    // It's more important to maintain semantics.
+                    Some(tape)
+                }
+                b'#' => {
+                    tape.seek_at(b"\n"); // comment
+                    Some(tape)
                 }
                 b'=' => self.handle_equals(tape),
                 b'\\' => self.handle_bslash(tape),
@@ -157,13 +192,9 @@ impl<'a> Parser<'a> {
                 b'-' => self.handle_dash(tape),
                 b'.' => self.handle_dot(tape),
                 b'[' => self.handle_obrac(tape),
-                b'#' => {
-                    tape.seek_at(b"\n"); // comment
-                    Some(tape)
-                }
                 b']' => self.handle_cbrac(tape),
-                b'~' => self.try_emit_flank(tape, tape.pos, 1, FlankType::STRIKETHROUGH),
-                b'_' => self.try_emit_flank(tape, tape.pos, 1, FlankType::UNDERLINE),
+                b'~' => self.try_pair_cur(tape, InlineFormat::STRIKETHROUGH_FLAG),
+                b'_' => self.try_pair_cur(tape, InlineFormat::UNDERLINE_FLAG),
                 _ => None,
             };
             if let Some(next) = next_tape {
@@ -171,20 +202,17 @@ impl<'a> Parser<'a> {
             }
             tape.adv();
         }
+        self.tokens.sort_unstable_by(|t1, t2| t1.start.cmp(&t2.start));
     }
 
-    /// Resolves whether a '[' character belongs to todo
+    /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
     #[must_use]
     fn handle_obrac(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
-        if tape
+        tape
             .poll_in_pgraph(self.pgraph_spacing, |ch, pos| {
                 let next = tape.raw[pos + 1];
                 ch == b']' && (next == b'(' || next == b'[')
-            })
-            .is_none()
-        {
-            return None;
-        }
+            })?;
         if tape.peek_back() == Some(b'!') {
             self.emit(TokenType::EmbedMarker, tape.pos - 1, tape.pos + 1);
         } else {
@@ -193,7 +221,8 @@ impl<'a> Parser<'a> {
         Some(tape)
     }
 
-    /// Resolves whether a ']' character belongs to todo
+    /// Resolves whether a ']' character belongs to a link body, an embed body, or plain text. 
+    #[must_use]
     fn handle_cbrac(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if !self.in_alt_txt {
             return None;
@@ -225,11 +254,7 @@ impl<'a> Parser<'a> {
         Some(tape)
     }
 
-    // ONLY FIRST NUMBERING MATTERS (sstart)
-    // IF START WITH CONTINUATION, USE DEFAULT SEQUENCE
-    // numerals must be within (0,4000)
-    // numbers must be nonzero, fit in u8
-    /// Resolves whether a '.' character belongs to an ordered List Item or plain text.
+    /// Resolves whether a '.' character belongs to an ordered list item or plain text.
     #[must_use]
     fn handle_dot(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
         if tape.is_cur_prefix() {
@@ -237,7 +262,7 @@ impl<'a> Parser<'a> {
                 tape,
                 TokenType::NumberedItem {
                     depth: tape.count_indent(),
-                    ty: NumberingType::Continuation,
+                    ty: Numbering::Continuation,
                 },
                 1,
             );
@@ -249,11 +274,11 @@ impl<'a> Parser<'a> {
             return None;
         }
         let ty = match prev.unwrap() {
-            b'd' => NumberingType::Number,
-            b'a' => NumberingType::Lower,
-            b'A' => NumberingType::Upper,
-            b'r' => NumberingType::LowerNumeral,
-            b'R' => NumberingType::UpperNumeral,
+            b'd' => Numbering::Number,
+            b'a' => Numbering::Lower,
+            b'A' => Numbering::Upper,
+            b'r' => Numbering::LowerNumeral,
+            b'R' => Numbering::UpperNumeral,
             _ => {
                 return None;
             }
@@ -428,12 +453,12 @@ impl<'a> Parser<'a> {
     fn handle_star(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
         if tape.at(b"***") {
-            self.try_emit_flank(tape, start, 3, FlankType::BOLD | FlankType::ITALIC)
+            self.try_pair_cur(tape, InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG)
         } else if tape.at(b"**") {
-            self.try_emit_flank(tape, start, 2, FlankType::BOLD)
+            self.try_pair_cur(tape, InlineFormat::BOLD_FLAG)
         } else {
             // try for '*'
-            self.try_emit_flank(tape, start, 1, FlankType::ITALIC)
+            self.try_pair_cur(tape, InlineFormat::ITALIC_FLAG)
         }
     }
 

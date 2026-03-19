@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 roman-numerals-rs = "4.1.0"
+enum-ordinalize = "4.3.2"

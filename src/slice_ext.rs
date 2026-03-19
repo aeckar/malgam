@@ -1,7 +1,8 @@
 use crate::char_ext::CharExt;
 
 pub trait SliceExt {
-    /// Returns a sub-slice with leading and trailing white space, according to the compiler, gone.
+    /// Returns a subslice with leading and trailing white space removed,
+    /// according to the compiler.
     fn trim_ws(&self) -> Self;
 }
 

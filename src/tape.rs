@@ -11,6 +11,10 @@ pub struct Tape<'a> {
 }
 
 impl<'a> Tape<'a> {
+    pub fn new(raw: &'a [u8]) -> Self {
+        Self { raw, pos: 0 }
+    }
+
     /// Advances the current position by 1 character.
     #[inline(always)]
     pub fn adv(&mut self) {

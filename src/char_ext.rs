@@ -1,8 +1,8 @@
-const IS_WS: u8 = 1 << 0; // 0000 0001
-const IS_ROMAN: u8 = 1 << 1; // 0000 0010
+const IS_WS: u8 = 1 << 0; // 0000_0001
+const IS_ROMAN: u8 = 1 << 1; // 0000_0010
 const FLAG_BITS: u8 = 2;
 
-// The table is exactly 256 bytes—one for every possible u8 value.
+/// Exactly 256 bytes—one for every possible u8 value.
 const CHAR_TABLE: [u8; 256] = {
     let mut table = [0u8; 256];
     table[b' ' as usize] = IS_WS | (1 << FLAG_BITS);

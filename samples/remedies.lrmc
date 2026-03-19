@@ -28,3 +28,29 @@ ctrl-. : open context menu/quick fix
 ctrl-shift-p :  command palette
 
 ctrl-p : go to file
+use 2-letters for snipps
+
+ctrl-, : settings
+tab completion: onlysnippets BRUH
+
+le
+lem
+
+backup talon, vscode to github
+
+snippets for common decl macro
+
+snippet for <'a>
+    // ONLY FIRST NUMBERING MATTERS (sstart)
+    // IF START WITH CONTINUATION, USE DEFAULT SEQUENCE
+    // numerals must be within (0,4000)
+    // numbers must be nonzero, fit in u8
+
+        ///
+    /// todo
+    /// design pattern here
+    /// closer, opener terminology
+    /// what is a "character cluster"?
+    /// what is clearance?
+    /// returning None Relinquishes the need to reset the position to the start.
+    //do not trim trailing ws--newlines are sig
