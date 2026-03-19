@@ -84,6 +84,7 @@ pub enum TokenType<'a> {
     Checkbox { depth: u8, filled: bool },
     ListItem { depth: u8 },
     NumberedItem { depth: u8, ty: Numbering },
+    EOF,
 }
 
 impl<'a> TokenType<'a> {

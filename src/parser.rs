@@ -6,17 +6,18 @@ use crate::{InlineFormat, Numbering, Token, TokenType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParserConfig {
-    handle_inline_math: bool,
+    support_inline_math: bool,
 }
 
-struct Pass1State {
+/// Encapsulates mutable state shared between different handlers during Pass 1.
+struct FirstPass {
     /// The number of spaces used to distinguish between two different paragraphs.
     ///
     /// This is 1 between single-line components (such as headings) and any other type of component,
     /// and 2 for all other components.
     pgraph_spacing: u8,
 
-    /// True if currently within alt text (validated '['). 
+    /// True if currently within alt text (validated '[').
     in_alt_txt: bool,
 
     /// A stack of positions of the first character of openers that
@@ -87,7 +88,12 @@ impl<'a> Parser<'a> {
     /// If `None` is not returned, the length of `self.unclosed_pairs` is always modified
     /// and the cursor of the returned tape is left at the final character of the cluster.
     #[must_use]
-    fn try_pair_cur(&mut self, pass: &mut Pass1State, mut tape: Tape<'a>, mask: u8) -> Option<Tape<'a>> {
+    fn try_pair_cur(
+        &mut self,
+        pass: &mut FirstPass,
+        mut tape: Tape<'a>,
+        mask: u8,
+    ) -> Option<Tape<'a>> {
         const BOLD_ITALIC_MASK: u8 = InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG;
         const BOLD_TY: TokenType<'static> = TokenType::InlineFormat {
             ty: InlineFormat::Bold,
@@ -95,7 +101,6 @@ impl<'a> Parser<'a> {
         const ITALIC_TY: TokenType<'static> = TokenType::InlineFormat {
             ty: InlineFormat::Italic,
         };
-
         let start = tape.pos;
         let len = InlineFormat::len(mask);
         if tape.is_l_clear(start) && !tape.is_r_clear(tape.pos) {
@@ -143,19 +148,57 @@ impl<'a> Parser<'a> {
         None
     }
 
+    /// Prune logical virtual tokens after pass one so they can be parsed as plain text
+    ///
+    /// The following are pruned:
+    /// - links/embeds without a body
+    /// - headings without text
+    /// - list items without text
+    ///
+    /// Since it would be incredibly difficult to determine whether a macro actually
+    /// emits visible text or not, let's just assume they all do when pruning virtual tokens.
+    fn prune_tokens(&mut self) {
+        let tokens = &self.tokens; // work on separate reference to avoid borrow clash
+        self.tokens = tokens
+            .iter()
+            .enumerate()
+            .filter(|&(idx, tok)| match tok.ty {
+                TokenType::LinkMarker | TokenType::EmbedMarker => {
+                    tokens[idx + 1..].iter().any(|t| {
+                        matches!(
+                            t.ty,
+                            TokenType::LinkBody { .. } | TokenType::LinkAliasBody { .. }
+                        )
+                    })
+                }
+                TokenType::Heading { .. }
+                | TokenType::ListItem { .. }
+                | TokenType::NumberedItem { .. } => tokens
+                    .get(idx + 1)
+                    .map_or(false, |next| next.ty != TokenType::Newline),
+                _ => true,
+            })
+            .map(|(_, tok)| tok.clone())
+            .collect();
+    }
+
+    /// **PASS 1: COLLECT VIRTUAL TOKENS**
+    ///
     /// todo
-    fn pass_1(&mut self) -> Pass1State {
-        let mut pass = Pass1State {
+    fn pass_1(&mut self) -> FirstPass {
+        let mut pass = FirstPass {
             in_alt_txt: false,
             pgraph_spacing: 2,
             open_fmts: Vec::new(),
             fmt_pairs: Vec::new(),
         };
         let mut tape = Tape::new(self.input);
+
         // Because these symbols may show up in prose,
         // we should expect them to most likely be plain text first
         while let Some(&ch) = self.input.get(tape.pos) {
-            let next_tape: Option<Tape<'a>> = match ch {    // ordered by expected frequency
+            let next_tape: Option<Tape<'a>> = match ch {
+                // ordered by expected frequency
                 b'\n' => {
                     pass.pgraph_spacing = 2;
                     self.emit_cur(tape, TokenType::Newline, 1);
@@ -174,7 +217,7 @@ impl<'a> Parser<'a> {
                 b'|' => self.try_pair_cur(&mut pass, tape, InlineFormat::HIGHLIGHT_FLAG),
                 b'~' => self.try_pair_cur(&mut pass, tape, InlineFormat::STRIKETHROUGH_FLAG),
                 b'[' => self.handle_obrac(&mut pass, tape),
-                b']'=> self.handle_cbrac(&pass, tape),
+                b']' => self.handle_cbrac(&pass, tape),
                 b'=' => self.handle_equals(&mut pass, tape),
                 b'\\' => self.handle_bslash(tape),
                 b'#' => {
@@ -188,6 +231,8 @@ impl<'a> Parser<'a> {
             }
             tape.adv();
         }
+        self.tokens.push(Token::new(TokenType::EOF, tape.raw.len(), tape.raw.len()));
+        self.prune_tokens();
         self.tokens
             .sort_unstable_by(|t1, t2| t1.start.cmp(&t2.start));
         pass
@@ -195,7 +240,7 @@ impl<'a> Parser<'a> {
 
     /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
     #[must_use]
-    fn handle_obrac(&mut self, pass: &mut Pass1State, tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_obrac(&mut self, pass: &mut FirstPass, tape: Tape<'a>) -> Option<Tape<'a>> {
         if pass.in_alt_txt {
             return None;
         }
@@ -214,7 +259,7 @@ impl<'a> Parser<'a> {
 
     /// Resolves whether a ']' character belongs to a link body, an embed body, or plain text.
     #[must_use]
-    fn handle_cbrac(&mut self, pass: &Pass1State, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_cbrac(&mut self, pass: &FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if !pass.in_alt_txt {
             return None;
         }
@@ -247,7 +292,7 @@ impl<'a> Parser<'a> {
 
     /// Resolves whether a '.' character belongs to an ordered list item or plain text.
     #[must_use]
-    fn handle_dot(&mut self, pass: &mut Pass1State, tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_dot(&mut self, pass: &mut FirstPass, tape: Tape<'a>) -> Option<Tape<'a>> {
         if tape.is_cur_prefix() {
             self.emit_cur(
                 tape,
@@ -289,7 +334,7 @@ impl<'a> Parser<'a> {
     /// Resolves whether a '-' character belongs to an unordered list item,
     /// a checkbox, or plain text.
     #[must_use]
-    fn handle_dash(&mut self, pass: &mut Pass1State, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_dash(&mut self, pass: &mut FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if matches!(tape.peek_back(), Some(b'o') | Some(b'x')) {
             // checkbox
             tape.dec(); // decrement to enable check on line start
@@ -324,7 +369,7 @@ impl<'a> Parser<'a> {
 
     /// Resolves whether a '=' character belongs to a heading or plain text.
     #[must_use]
-    fn handle_equals(&mut self, pass: &mut Pass1State, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_equals(&mut self, pass: &mut FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if !tape.is_cur_prefix() {
             return None;
         }
@@ -343,7 +388,7 @@ impl<'a> Parser<'a> {
     /// Resolves whether a '$' character belongs to inline math,
     /// a dollar sign literal (if enabled), or plain text.
     #[must_use]
-    fn handle_dollar(&mut self, pass: &Pass1State, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_dollar(&mut self, pass: &FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
         if tape.at(b"$$") {
             if !tape.is_cur_prefix() {
@@ -365,7 +410,7 @@ impl<'a> Parser<'a> {
             );
             tape.pos += 2; // stop at last '$$'
         }
-        if !self.config.handle_inline_math {
+        if !self.config.support_inline_math {
             return None;
         }
         if !tape.seek_at_in_pgraph(pass.pgraph_spacing, b"$") {
@@ -384,7 +429,7 @@ impl<'a> Parser<'a> {
 
     /// Resolves whether a ` character belongs to inline code or plain text.
     #[must_use]
-    fn handle_btick(&mut self, pass: &Pass1State, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_btick(&mut self, pass: &FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
         let spacing = pass.pgraph_spacing;
         if tape.at(b"```") {
@@ -441,9 +486,13 @@ impl<'a> Parser<'a> {
     /// Resolves whether a `*` character belongs to a bold token,
     /// an italic token, both, or plain text.
     #[must_use]
-    fn handle_star(&mut self, pass: &mut Pass1State, tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_star(&mut self, pass: &mut FirstPass, tape: Tape<'a>) -> Option<Tape<'a>> {
         if tape.at(b"***") {
-            self.try_pair_cur(pass, tape, InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG)
+            self.try_pair_cur(
+                pass,
+                tape,
+                InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG,
+            )
         } else if tape.at(b"**") {
             self.try_pair_cur(pass, tape, InlineFormat::BOLD_FLAG)
         } else {
@@ -551,7 +600,7 @@ mod tests {
     fn init_parser<'a>(input: &'a str) -> Parser<'a> {
         Parser::new(
             &ParserConfig {
-                handle_inline_math: true,
+                support_inline_math: true,
             },
             input.as_bytes(),
         )
