@@ -54,3 +54,13 @@ snippet for <'a>
     /// what is clearance?
     /// returning None Relinquishes the need to reset the position to the start.
     //do not trim trailing ws--newlines are sig
+
+    if {|<> then pressing ENTER does
+
+    {
+        <>|
+    }
+
+    //You mentioned they are used "sporadically between handlers." This is actually a sign that they belong in a Context object.
+
+    // use of state makes clearer when semi-global state is changed or just viewed
