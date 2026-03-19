@@ -6,7 +6,7 @@
 // \href{
 //   1: google.com
 // }
-// todo includes virtual tokens
+// virtual tokens
 // auto-renumbering of list items by formatter
 // mostly variable-length
 // tokens do not need reflect text 1:1
@@ -23,20 +23,26 @@ pub enum NumberingType {
     Continuation,
 }
 
+/// These include boundary markers (see comments).
+///
+/// Even if two tokens share the same structure and general purpose,
+/// if their listener logic differs, then it is okay to differentiate them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType<'a> {
     Literal { ch: u8 },
-    Link { embed: bool, alt: &'a [u8], href: &'a [u8] },
-    LinkAlias { embed: bool, alt: &'a [u8], href: &'a [u8], alias: &'a [u8] },
-    MacroHandle { name: &'a [u8] },
-    MacroArgs { body: &'a [u8] },
-    MacroBody { body: &'a [u8] },
+    LinkBody { href: &'a [u8] },      // ]( )
+    LinkAliasBody { alias: &'a [u8] }, // ][ ]
+    LinkMarker,
+    EmbedMarker,
+    MacroHandle { name: &'a [u8] }, // \
+    MacroArgs { body: &'a [u8] },   // [ ]
+    MacroBody { body: &'a [u8] },   // { }
     Heading { depth: u8 },
-    InlineCode { body: &'a [u8] },    // includes ` `
-    InlineRawCode { body: &'a [u8] }, // includes `` ``
-    InlineMath { body: &'a [u8] },    // includes $ $
+    InlineCode { body: &'a [u8] },    // ` `
+    InlineRawCode { body: &'a [u8] }, // `` ``
+    InlineMath { body: &'a [u8] },    // $ $
     CodeBlock { body: &'a [u8], lang: &'a [u8] },
-    MathBlock {body: &'a [u8]},
+    MathBlock { body: &'a [u8] },
     Bold,
     Italic,
     Strikethrough,
@@ -47,14 +53,14 @@ pub enum TokenType<'a> {
     NumberedItem { depth: u8, ty: NumberingType },
 }
 
-impl TokenType {
+impl<'a> TokenType<'a> {
     pub const HEADING_MAX: usize = 6;
-    pub const FLANK: [TokenType; 5] = [
-            TokenType::Bold,
-    TokenType::Italic,
-    TokenType::Strikethrough,
-    TokenType::Underline,
-    TokenType::Highlight,
+    pub const FLANK: [TokenType<'a>; 5] = [
+        TokenType::Bold,
+        TokenType::Italic,
+        TokenType::Strikethrough,
+        TokenType::Underline,
+        TokenType::Highlight,
     ];
 }
 

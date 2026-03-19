@@ -13,6 +13,9 @@ pub struct ParserConfig {
 /// Contains global parser state.
 #[derive(Debug)]
 pub struct Parser<'a> {
+    /// True if currently consuming the alt text of a link or embed.
+    in_alt_txt: bool,
+
     /// The number of spaces Use to distinguish between two different paragraphs.
     ///
     /// This is 1 between single-line components (such as headings) and any other type of component,
@@ -45,6 +48,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(config: &'a ParserConfig, input: &'a [u8]) -> Self {
         Self {
+            in_alt_txt: false,
             pgraph_spacing: 2,
             unclosed_pairs: Vec::new(),
             tokens: Vec::new(),
@@ -63,6 +67,7 @@ impl<'a> Parser<'a> {
 
     /// Pushes the token whose first character is at the current position
     /// and has the given length.
+    //do not return tape for convenience, as `pos` might need to be adjusted before exiting handler.
     #[inline]
     fn emit_cur(&mut self, tape: Tape, ty: TokenType, len: usize) {
         self.tokens.push(Token::new(ty, tape.pos, tape.pos + len));
@@ -134,11 +139,16 @@ impl<'a> Parser<'a> {
     /// what is a "character cluster"?
     /// what is clearance?
     /// returning None Relinquishes the need to reset the position to the start.
+    //do not trim trailing ws--newlines are sig
     pub fn pass_1(&mut self, mut tape: Tape<'a>) {
         // Because these symbols may show up in prose,
         // we should expect them to most likely be plain text first
         while let Some(&ch) = self.input.get(tape.pos) {
             let next_tape: Option<Tape<'a>> = match ch {
+                b'\n' => {
+                    self.pgraph_spacing = 2;
+                    None
+                }
                 b'=' => self.handle_equals(tape),
                 b'\\' => self.handle_bslash(tape),
                 b'*' => self.handle_star(tape),
@@ -146,17 +156,12 @@ impl<'a> Parser<'a> {
                 b'$' => self.handle_dollar(tape),
                 b'-' => self.handle_dash(tape),
                 b'.' => self.handle_dot(tape),
-                b'[' => self.handle_brac(tape),
+                b'[' => self.handle_obrac(tape),
                 b'#' => {
-                    tape.seek(|ch, _| ch == b'\n'); // comment
+                    tape.seek_at(b"\n"); // comment
                     Some(tape)
                 }
-                b']' => {
-                    // check for pair
-                    // if true, emit:
-                    // self.push_cur_tok(TokenType::CloseBrac, 1);
-                    self.eat_open_par = true;
-                }
+                b']' => self.handle_cbrac(tape),
                 b'~' => self.try_emit_flank(tape, tape.pos, 1, FlankType::STRIKETHROUGH),
                 b'_' => self.try_emit_flank(tape, tape.pos, 1, FlankType::UNDERLINE),
                 _ => None,
@@ -168,10 +173,56 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Resolves whether a '[' character belongs to
+    /// Resolves whether a '[' character belongs to todo
     #[must_use]
-    fn handle_brac(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
-        
+    fn handle_obrac(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
+        if tape
+            .poll_in_pgraph(self.pgraph_spacing, |ch, pos| {
+                let next = tape.raw[pos + 1];
+                ch == b']' && (next == b'(' || next == b'[')
+            })
+            .is_none()
+        {
+            return None;
+        }
+        if tape.peek_back() == Some(b'!') {
+            self.emit(TokenType::EmbedMarker, tape.pos - 1, tape.pos + 1);
+        } else {
+            self.emit_cur(tape, TokenType::LinkMarker, 1);
+        }
+        Some(tape)
+    }
+
+    /// Resolves whether a ']' character belongs to todo
+    fn handle_cbrac(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+        if !self.in_alt_txt {
+            return None;
+        }
+        let spacing = self.pgraph_spacing;
+        let stop;
+        let start = tape.pos;
+        tape.adv(); // skip ']'
+        match tape.cur() {
+            Some(b'[') => stop = b']',
+            Some(b'(') => stop = b')',
+            _ => {
+                return None;
+            }
+        }
+        let body = tape.consume_in_pgraph(spacing, |ch, _| ch != stop);
+        if body.is_empty() || tape.cur() != Some(stop) {
+            return None;
+        }
+        if stop == b']' {
+            self.emit(
+                TokenType::LinkAliasBody { alias: body },
+                start,
+                tape.pos + 1,
+            );
+        } else {
+            self.emit(TokenType::LinkBody { href: body }, start, tape.pos + 1);
+        }
+        Some(tape)
     }
 
     // ONLY FIRST NUMBERING MATTERS (sstart)
@@ -190,6 +241,7 @@ impl<'a> Parser<'a> {
                 },
                 1,
             );
+            self.pgraph_spacing = 1;
             return Some(tape);
         }
         let prev = tape.peek_back();
@@ -214,6 +266,7 @@ impl<'a> Parser<'a> {
             tape.pos - 1,
             tape.pos + 1,
         );
+        self.pgraph_spacing = 1;
         Some(tape)
     }
 
@@ -236,7 +289,8 @@ impl<'a> Parser<'a> {
                 2,
             );
             tape.adv();
-            return None; // stop at '-'
+            self.pgraph_spacing = 1;
+            return Some(tape); // stop at '-'
         }
         if !tape.is_cur_prefix() {
             return None;
@@ -248,6 +302,7 @@ impl<'a> Parser<'a> {
             },
             1,
         );
+        self.pgraph_spacing = 1;
         Some(tape) // stop at '-'
     }
 
@@ -297,7 +352,7 @@ impl<'a> Parser<'a> {
         if !self.config.handle_inline_math {
             return None;
         }
-        if !tape.seek_in_pgraph(self.pgraph_spacing, |ch, _| ch == b'$') {
+        if !tape.seek_at_in_pgraph(self.pgraph_spacing, b"$") {
             // failed lookahead
             return None; // stop at '$'
         }
@@ -340,7 +395,7 @@ impl<'a> Parser<'a> {
         }
         if tape.at(b"``") {
             tape.adv(); // skip over first '`' of open
-            if !tape.seek_at(b"``") {
+            if !tape.seek_at_in_pgraph(spacing, b"``") {
                 return Some(tape); // stop at 2nd '`'; treat as text
             }
             tape.adv(); // skip over first '`' of closer
@@ -353,7 +408,7 @@ impl<'a> Parser<'a> {
             );
             return Some(tape);
         }
-        if !tape.seek_in_pgraph(spacing, |ch, _| ch == b'`') {
+        if !tape.seek_at_in_pgraph(spacing, b"`") {
             // failed lookahead
             return None; // stop at '`'
         }
@@ -396,8 +451,7 @@ impl<'a> Parser<'a> {
             // treat as escape
             return Some(tape); // stop at the character after '\'
         }
-        tape.consume_in_pgraph(self.pgraph_spacing, |ch, _| ch.is_ws());
-        let first_non_ws = tape.pos;
+        let mut next_pos = tape.pos;
         let mut next = tape.cur();
         if next.is_none_or(|ch| ch != b'[' && ch != b'{') {
             // treat as incomplete macro
@@ -409,34 +463,37 @@ impl<'a> Parser<'a> {
             start + name.len() + 1,
         ));
         if next == Some(b'[') {
-            if !tape.seek(|ch, _| ch == b']') {
+            if !tape.seek_at(b"]") {
                 // treat as incomplete macro
                 return Some(tape); // stop at '['
             }
             tape.adv(); // skip past ']'
             self.emit(
                 TokenType::MacroArgs {
-                    body: &tape.raw[first_non_ws + 1..tape.pos],
+                    body: &tape.raw[next_pos + 1..tape.pos],
                 },
-                first_non_ws,
+                next_pos,
                 tape.pos,
             );
+            next_pos = tape.pos;
             next = tape.cur();
             // stop after ']'
         }
         while next == Some(b'{') {
-            if !tape.seek(|ch, _| ch == b'}') {
+            if !tape.seek_at(b"}") {
                 // treat as incomplete macro
                 return Some(tape); // stop at '{'
             }
             tape.adv(); // skip past '}'
             self.emit(
                 TokenType::MacroBody {
-                    body: &tape.raw[first_non_ws + 1..tape.pos],
+                    body: &tape.raw[next_pos + 1..tape.pos],
                 },
-                first_non_ws,
+                next_pos,
                 tape.pos,
             );
+            next_pos = tape.pos;
+            next = tape.cur();
             // stop after '}'
         }
         Some(tape)

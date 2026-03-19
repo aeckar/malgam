@@ -94,7 +94,7 @@ impl<'a> Tape<'a> {
     /// Returns the position of the last character returning true, or `None`.
     #[must_use]
     #[inline]
-    pub fn poll_rev<F>(&self, mut pred: F) -> Option<usize>
+    pub fn poll_back<F>(&self, mut pred: F) -> Option<usize>
     where
         F: FnMut(u8, usize) -> bool,
     {
@@ -159,7 +159,7 @@ impl<'a> Tape<'a> {
     where
         F: FnMut(u8, usize) -> bool,
     {
-        match self.poll_rev(|ch, pos| !pred(ch, pos)) {
+        match self.poll_back(|ch, pos| !pred(ch, pos)) {
             None => &self.raw[0..0],
             Some(pos) => {
                 let res = &self.raw[self.pos..pos];
@@ -218,6 +218,15 @@ impl<'a> Tape<'a> {
 
     /// Advances `pos` until `query` is found within the current paragraph.
     ///
+    /// Returns `true` if found and `pos` is left pointing at the match,
+    /// or `false` and `pos` is restored to its original value.
+    #[inline]
+    pub fn seek_at_in_pgraph(&mut self, spacing: u8, query: &'a [u8]) -> bool {
+        self.seek_in_pgraph(spacing, |_, pos| self.raw[pos..].starts_with(query))
+    }
+
+    /// Advances `pos` until `query` is found within the current paragraph.
+    ///
     /// Returns `true` if found (leaving `pos` at the match), or `false`
     /// and restores `pos` on failure.
     #[inline]
@@ -272,6 +281,6 @@ impl<'a> Tape<'a> {
     /// Returns the number of times the current line is indented.
     #[must_use]
     pub fn count_indent(&self) -> u8 {
-        count_indent(&self.raw[self.poll_rev(|ch, _| ch == b'\n').unwrap_or(0)..self.pos])
+        count_indent(&self.raw[self.poll_back(|ch, _| ch == b'\n').unwrap_or(0)..self.pos])
     }
 }

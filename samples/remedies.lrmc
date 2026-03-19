@@ -2,3 +2,29 @@
 
 =remedies
 
+my compiler is a speculative finite state machine
+
+IF LINK WITHOUT BODY, IGNORE
+
+IF THERE IS NOTHING AFTER PREFIX (=, -, .) THEN DONT FORMAT
+handle in later passes
+
+ctrl-d : take current word
+
+
+ctrl-shift-L : take all highlighted occurences
+alt left, right : eh
+
+ctrl-. : open context menu/quick fix
+
+(remove smart selection binidngs)
+
+.opt snippet!
+
+.snippet to make {
+    <selected>
+}
+
+ctrl-shift-p :  command palette
+
+ctrl-p : go to file
