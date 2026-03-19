@@ -36,6 +36,7 @@ pub enum TokenType<'a> {
     InlineRawCode { body: &'a [u8] }, // includes `` ``
     InlineMath { body: &'a [u8] },    // includes $ $
     CodeBlock { body: &'a [u8], lang: &'a [u8] },
+    MathBlock {body: &'a [u8]},
     Bold,
     Italic,
     Strikethrough,

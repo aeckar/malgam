@@ -170,7 +170,9 @@ impl<'a> Parser<'a> {
 
     /// Resolves whether a '[' character belongs to
     #[must_use]
-    fn handle_brac(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {}
+    fn handle_brac(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+        
+    }
 
     // ONLY FIRST NUMBERING MATTERS (sstart)
     // IF START WITH CONTINUATION, USE DEFAULT SEQUENCE
@@ -272,7 +274,26 @@ impl<'a> Parser<'a> {
     #[must_use]
     fn handle_dollar(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
-        if tape.at(b"$$") {}
+        if tape.at(b"$$") {
+            if !tape.is_cur_prefix() {
+                return None;
+            }
+            tape.pos += 2; // skip over '$$'
+            let body_start = tape.pos + 1;
+            if !tape.seek_at(b"\n$$") {
+                // failed lookahead
+                return None;
+            }
+
+            self.emit(
+                TokenType::MathBlock {
+                    body: &tape.raw[body_start..tape.pos],
+                },
+                start,
+                tape.pos + 1,
+            );
+            tape.pos += 2; // stop at last '$$'
+        }
         if !self.config.handle_inline_math {
             return None;
         }
@@ -302,11 +323,10 @@ impl<'a> Parser<'a> {
             tape.pos += 3; // skip over '```'
             let lang = tape.consume(|ch, _| ch != b'\n');
             let body_start = tape.pos + 1;
-            if !tape.seek(|_, pos| tape.raw[pos..].starts_with(b"\n```")) {
+            if !tape.seek_at(b"\n```") {
                 // failed lookahead
                 return None;
             }
-            tape.pos += 3; // stop at last '`'
             self.emit(
                 TokenType::CodeBlock {
                     body: &tape.raw[body_start..tape.pos],
@@ -315,11 +335,12 @@ impl<'a> Parser<'a> {
                 start,
                 tape.pos + 1,
             );
+            tape.pos += 3; // stop at last '`'
             return Some(tape);
         }
         if tape.at(b"``") {
             tape.adv(); // skip over first '`' of open
-            if !tape.seek_in_pgraph(spacing, |_, pos| tape.raw[pos..].starts_with(b"``")) {
+            if !tape.seek_at(b"``") {
                 return Some(tape); // stop at 2nd '`'; treat as text
             }
             tape.adv(); // skip over first '`' of closer

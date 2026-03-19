@@ -189,7 +189,7 @@ impl<'a> Tape<'a> {
         }
     }
 
-    /// Advances `pos` until `query` is found.
+    /// Advances `pos` until `pred` returns true.
     ///
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
@@ -205,6 +205,15 @@ impl<'a> Tape<'a> {
                 true
             }
         }
+    }
+
+    /// Advances `pos` until `query` is found.
+    ///
+    /// Returns `true` if found and `pos` is left pointing at the match,
+    /// or `false` and `pos` is restored to its original value.
+    #[inline]
+    pub fn seek_at(&mut self, query: &'a [u8]) -> bool {
+        self.seek(|_, pos| self.raw[pos..].starts_with(query))
     }
 
     /// Advances `pos` until `query` is found within the current paragraph.
