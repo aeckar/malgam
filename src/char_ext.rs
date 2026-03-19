@@ -34,12 +34,6 @@ pub trait CharExt {
     /// All other characters return a length of 0.
     #[must_use]
     fn ws_len(&self) -> u8;
-
-    /// Returns true if the given character may be part of a Roman numeral.
-    ///
-    /// This is used to determine if a letter is part of a numeral in front of an ordered list item.
-    #[must_use]
-    fn is_roman(&self) -> bool;
 }
 
 impl CharExt for u8 {
@@ -52,10 +46,5 @@ impl CharExt for u8 {
     fn ws_len(&self) -> u8 {
         // Shift the stored length value back down
         CHAR_TABLE[*self as usize] >> FLAG_BITS
-    }
-
-    #[inline(always)]
-    fn is_roman(&self) -> bool {
-        (CHAR_TABLE[*self as usize] & IS_ROMAN) != 0
     }
 }

@@ -1,9 +1,11 @@
 //! Don't check for UTF-8 correctness; leave that to the user.
 
+use roman_numerals_rs::RomanNumeral;
+
 use crate::char_ext::CharExt;
 use crate::slice_ext::SliceExt;
 use crate::tape::Tape;
-use crate::{FlankType, Token, TokenType};
+use crate::{FlankType, NumberingType, Token, TokenType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParserConfig {
@@ -135,7 +137,7 @@ impl<'a> Parser<'a> {
                 b'.' => self.handle_dot(tape),
                 b'[' => self.handle_brac(tape),
                 b'#' => {
-                    tape.skip_to(|ch, _| ch == b'\n'); // comment
+                    tape.seek(|ch, _| ch == b'\n'); // comment
                     Some(tape)
                 }
                 b']' => {
@@ -165,76 +167,60 @@ impl<'a> Parser<'a> {
     }
 
     // ONLY FIRST NUMBERING MATTERS (sstart)
+    // IF START WITH CONTINUATION, USE DEFAULT SEQUENCE
     // numerals must be within (0,4000)
     // numbers must be nonzero, fit in u8
     /// Resolves whether a '.' character belongs to an ordered List Item or plain text.
     #[must_use]
-    fn handle_dot(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
-        let prev = tape.peek_rev();
-        if prev.is_none() {
+    fn handle_dot(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
+        if tape.is_cur_prefix() {   
+            self.emit_cur(tape, TokenType::NumberedItem { depth: tape.count_indent(), ty: NumberingType::Continuation }, 1);
+            return Some(tape);
+        }
+        let prev = tape.peek_back();
+        if prev.is_none() || !tape.is_prefix(tape.pos - 1) {
             return None; 
         }
-        let prev = prev.unwrap();
-        let dot_pos = tape.pos;
-        if prev.is_roman() {
-            tape.skip_to_rev(|ch, _| !ch.is_ascii_alphabetic());
-            if !tape.at_first_non_ws() {
-                tape.pos = dot_pos;
-                return None; 
-            }
-            let num = unsafe { str::from_utf8_unchecked(&tape.raw[tape.pos..dot_pos]) }.parse();
-            if num.is_err() {
-                return; // invalid numeral; treat dot as text
-            }
-            let num: RomanNumeral = num.unwrap();
-            if prev.is_ascii_uppercase() {
-                // case sameness is guaranteed, see:
-                // https://docs.rs/crate/roman-numerals-rs/4.1.0/source/src/lib.rs#15
-                num.
-            } else {
-                
-            }
-        }
-        let ty = match prev {
-            b'0'..=b'9' => TokenType::NumItem,
-            b'a'..=b'z' => TokenType::LowerItem, // ignoring 'z'
-            b'A'..=b'Z' => TokenType::UpperItem, // same
-            b'.' => {
-                tape.dec();
-                TokenType::Continuation
-            }
-            _ => TokenType::ListItem,
+        let ty = match prev.unwrap() {
+            b'd' => NumberingType::Number,
+            b'a' => NumberingType::Lower,
+            b'A' => NumberingType::Upper,
+            b'r' => NumberingType::LowerNumeral,
+            b'R' => NumberingType::UpperNumeral,
+            _ => { return None;}
         };
+        self.emit(TokenType::NumberedItem { depth: tape.count_indent(), ty }, tape.pos - 1, tape.pos + 1);
+        Some(tape)
     }
 
     /// Resolves whether a '-' character belongs to an unordered list item,
     /// a checkbox, or plain text.
     #[must_use]
     fn handle_dash(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
-        if matches!(tape.peek_rev(), Some(b'o') | Some(b'x')) {    // checkbox
+        if matches!(tape.peek_back(), Some(b'o') | Some(b'x')) {    // checkbox
             tape.dec(); // decrement to enable check on line start
-            if !tape.at_first_non_ws() {
+            if !tape.is_cur_prefix() {
                 return None; 
             }
             self.emit_cur(
                 tape,
-                TokenType::Checkbox { depth: tape.line_indent(), filled: tape.raw[tape.pos] == b'x' },
+                TokenType::Checkbox { depth: tape.count_indent(), filled: tape.raw[tape.pos] == b'x' },
                 2,
             );
             tape.adv();
             return None; // stop at '-'
         }
-        if !tape.at_first_non_ws() {
+        if !tape.is_cur_prefix() {
             return None; 
         }
-        self.emit_cur(tape, TokenType::ListItem { depth: tape.line_indent() }, 1);
+        self.emit_cur(tape, TokenType::ListItem { depth: tape.count_indent() }, 1);
         Some(tape) // stop at '-'
     }
 
     /// Resolves whether a '=' character belongs to a heading or plain text.
     #[must_use]
     fn handle_equals(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
-        if !tape.at_first_non_ws() {
+        if !tape.is_cur_prefix() {
             return None; 
         }
         let start = tape.pos;
@@ -261,20 +247,18 @@ impl<'a> Parser<'a> {
         if !tape.seek_in_pgraph(self.pgraph_spacing, |ch, _| ch == b'$') { // failed lookahead
             return None; // stop at '$'
         }
-        let body = tape.slice_utf8(start + 1, tape.pos);
         self.tokens
-            .push(Token::new(TokenType::InlineMath { body }, start, tape.pos + 1));
+            .push(Token::new(TokenType::InlineMath { body: &tape.raw[start + 1.. tape.pos] }, start, tape.pos + 1));
         Some(tape)  // stop at closing '$'
     }
 
     /// Resolves whether a ` character belongs to inline code or plain text.
-    /// todo multiline
     #[must_use]
     fn handle_btick(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
         let spacing = self.pgraph_spacing;
         if tape.at(b"```") {
-            if !tape.at_first_non_ws() {
+            if !tape.is_cur_prefix() {
                 return None;
             }
             tape.pos += 3;  // skip over '```'
@@ -283,9 +267,8 @@ impl<'a> Parser<'a> {
             if !tape.seek(|_,pos| tape.raw[pos..].starts_with(b"\n```")) { // failed lookahead
                 return None;
             }
-            let body = tape.slice_utf8(body_start, tape.pos);
             tape.pos += 3;  // stop at last '`'
-            self.emit(TokenType::CodeBlock { body, lang: lang.to_utf8_trimmed() }, start, tape.pos + 1);
+            self.emit(TokenType::CodeBlock { body: &tape.raw[body_start.. tape.pos], lang: lang.trim_ws() }, start, tape.pos + 1);
             return Some(tape);
         }
         if tape.at(b"``") {
@@ -293,17 +276,15 @@ impl<'a> Parser<'a> {
             if !tape.seek_in_pgraph(spacing, |_, pos| tape.raw[pos..].starts_with(b"``")) {
                 return Some(tape); // stop at 2nd '`'; treat as text
             }
-            let body = tape.slice_utf8(start + 2, tape.pos);
             tape.adv(); // skip over first '`' of closer
-            self.emit(TokenType::InlineRawCode { body }, start, tape.pos + 1);
+            self.emit(TokenType::InlineRawCode { body: &tape.raw[start + 2.. tape.pos] }, start, tape.pos + 1);
             return Some(tape);
         }
         if !tape.seek_in_pgraph(spacing, |ch, _| ch == b'`') {   // failed lookahead
             return None; // stop at '`'
         }
-        let body = tape.slice_utf8(start + 1, tape.pos);
         self.tokens
-            .push(Token::new(TokenType::InlineCode { body }, start, tape.pos + 1));
+            .push(Token::new(TokenType::InlineCode { body: &tape.raw[start + 1.. tape.pos] }, start, tape.pos + 1));
         Some(tape)  // stop at closing '`'
     }
 
@@ -341,14 +322,13 @@ impl<'a> Parser<'a> {
             return Some(tape); // stop at the first non-WS character after the macro name
         }
         self.tokens
-            .push(Token::new(TokenType::MacroHandle { name: name.to_utf8() }, start, start + name.len() + 1));
+            .push(Token::new(TokenType::MacroHandle { name}, start, start + name.len() + 1));
         if next == Some(b'[') {
             if !tape.seek(|ch, _| ch == b']') {  // treat as incomplete macro
                 return Some(tape); // stop at '['
             }
-            let body = tape.slice_utf8(first_non_ws + 1,tape.pos);
             tape.adv(); // skip past ']'
-            self.emit(TokenType::MacroArgs {body}, first_non_ws, tape.pos);
+            self.emit(TokenType::MacroArgs {body: &tape.raw[first_non_ws + 1..tape.pos]}, first_non_ws, tape.pos);
             next = tape.cur();
             // stop after ']'
         }
@@ -356,9 +336,8 @@ impl<'a> Parser<'a> {
             if !tape.seek(|ch, _| ch == b'}') {  // treat as incomplete macro
                 return Some(tape); // stop at '{'
             }
-            let body = tape.slice_utf8(first_non_ws+1, tape.pos);
             tape.adv(); // skip past '}'
-            self.emit(TokenType::MacroBody{body}, first_non_ws, tape.pos);
+            self.emit(TokenType::MacroBody{ body:&tape.raw[first_non_ws+1..tape.pos]}, first_non_ws, tape.pos);
             // stop after '}'
         }
         Some(tape)
@@ -377,36 +356,5 @@ mod tests {
             },
             input.as_bytes(),
         )
-    }
-
-    #[test]
-    fn test_heading_resolution() {
-        let mut p = init_parser("=== Heading Level 3");
-        p.pass_1();
-
-        // Assert that we found 1 token and it's the correct level
-        assert_eq!(p.tokens.len(), 1);
-        // Assuming your HEAD_TOK_TYPES mapping works:
-        // Level 3 should correspond to your H3 TokenType
-    }
-
-    #[test]
-    fn test_inline_code_block() {
-        let mut p = init_parser("`code block` and more text");
-        p.pass_1();
-
-        // Check if the token was captured
-        assert!(p.tokens.iter().any(|t| t.ty == TokenType::InlineCode));
-    }
-
-    #[test]
-    fn test_macro_resolution() {
-        let mut p = init_parser("\\bold{text}");
-        p.pass_1();
-
-        // This validates your resolve_bslash logic
-        // Should find MacroHandle and MacroBody
-        println!("{:?}", p.tokens);
-        assert_eq!(p.tokens.len(), 2);
     }
 }

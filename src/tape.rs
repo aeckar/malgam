@@ -1,4 +1,4 @@
-use crate::{char_ext::CharExt, etc::count_indent, slice_ext::SliceExt};
+use crate::{char_ext::CharExt, etc::count_indent};
 
 /// Text input and an index associated with an element in it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,13 +11,6 @@ pub struct Tape<'a> {
 }
 
 impl<'a> Tape<'a> {
-    /// Returns the string slice about the given indices as an unchecked UTF-8 string.
-    #[must_use]
-    #[inline(always)]
-    pub fn slice_utf8(&self, from: usize, to: usize) -> String {
-        (&self.raw[from..to]).to_utf8()
-    }
-
     /// Advances the current position by 1 character.
     #[inline(always)]
     pub fn adv(&mut self) {
@@ -56,7 +49,7 @@ impl<'a> Tape<'a> {
     /// Returns the character at `pos - 1`, or `None` if that position is out of bounds.
     #[must_use]
     #[inline(always)]
-    pub const fn peek_rev(&self) -> Option<u8> {
+    pub const fn peek_back(&self) -> Option<u8> {
         let pos = self.pos - 1;
         if pos < self.raw.len() {
             Some(self.raw[pos])
@@ -136,7 +129,7 @@ impl<'a> Tape<'a> {
         None
     }
 
-    /// Advance `pos` until `pred` returns true for the character at the
+    /// Advance `pos` until `pred` returns false for the character at the
     /// current position.
     ///
     /// Leaves `pos` pointing at the matching character (or at `text.len()` when none matched).
@@ -156,7 +149,7 @@ impl<'a> Tape<'a> {
         }
     }
 
-    /// Decrement `pos` until `pred` returns true for the character at the
+    /// Decrement `pos` until `pred` returns false for the character at the
     /// current position.
     ///
     /// Leaves `pos` pointing at the matching character (or at `text.len()` when none matched).
@@ -176,7 +169,7 @@ impl<'a> Tape<'a> {
         }
     }
 
-    /// Advances `pos` until `pred` returns true for the character at the
+    /// Advances `pos` until `pred` returns false for the character at the
     /// current position, respecting paragraph spacing rules.
     ///
     /// Leaves `pos` pointing at the matching character (or at `text.len()` when none matched).
@@ -245,8 +238,17 @@ impl<'a> Tape<'a> {
     /// itself if it is a newline.
     #[must_use]
     #[inline]
-    pub fn at_first_non_ws(&self) -> bool {
-        for i in (0..self.pos).rev() {
+    pub fn is_cur_prefix(&self) -> bool {
+        self.is_prefix(self.pos)
+    }
+
+    /// Returns true if there are no non-whitespace characters between
+    /// the given character and the previous newline, the beginning of the input, or
+    /// itself if it is a newline.
+    #[must_use]
+    #[inline]
+    pub fn is_prefix(&self, pos: usize) -> bool {
+        for i in (0..pos).rev() {
             let c = self.raw[i]; // This is safe because i < self.pos
             if c == b'\n' {
                 return true;
@@ -260,7 +262,7 @@ impl<'a> Tape<'a> {
 
     /// Returns the number of times the current line is indented.
     #[must_use]
-    pub fn line_indent(&self) -> u8 {
+    pub fn count_indent(&self) -> u8 {
         count_indent(&self.raw[self.poll_rev(|ch, _| ch == b'\n').unwrap_or(0)..self.pos])
     }
 }

@@ -20,21 +20,22 @@ pub enum NumberingType {
     Upper,
     LowerNumeral,
     UpperNumeral,
+    Continuation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TokenType {
+pub enum TokenType<'a> {
     Literal { ch: u8 },
-    Link { embed: bool, alt: String, href: String },
-    LinkAlias { embed: bool, alt: String, href: String, alias: String },
-    MacroHandle { name: String },
-    MacroArgs { body: String },
-    MacroBody { body: String },
+    Link { embed: bool, alt: &'a [u8], href: &'a [u8] },
+    LinkAlias { embed: bool, alt: &'a [u8], href: &'a [u8], alias: &'a [u8] },
+    MacroHandle { name: &'a [u8] },
+    MacroArgs { body: &'a [u8] },
+    MacroBody { body: &'a [u8] },
     Heading { depth: u8 },
-    InlineCode { body: String },    // includes ` `
-    InlineRawCode { body: String }, // includes `` ``
-    InlineMath { body: String },    // includes $ $
-    CodeBlock { body: String, lang: String },
+    InlineCode { body: &'a [u8] },    // includes ` `
+    InlineRawCode { body: &'a [u8] }, // includes `` ``
+    InlineMath { body: &'a [u8] },    // includes $ $
+    CodeBlock { body: &'a [u8], lang: &'a [u8] },
     Bold,
     Italic,
     Strikethrough,
@@ -42,7 +43,7 @@ pub enum TokenType {
     Highlight,
     Checkbox { depth: u8, filled: bool },
     ListItem { depth: u8 },
-    NumberedItem { depth: u8, ty: NumberingType, pos: u8 },
+    NumberedItem { depth: u8, ty: NumberingType },
 }
 
 impl TokenType {
