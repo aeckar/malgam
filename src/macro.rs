@@ -2,10 +2,14 @@ use std::collections::HashMap;
 
 use crate::tape::Tape;
 
+// json but different array/object notation
 pub enum MacroArg<'a> {
     Bool(bool),
     String(&'a [u8]),
     Number(f64),
+    Array(Vec<MacroArg<'a>>),
+    Map(HashMap<&'a [u8],MacroArg<'a>>),
+    Null,
 }
 
 impl<'a> MacroArg<'a> {
@@ -40,14 +44,16 @@ impl<'a> BuiltinMacros {
 
     // builtin globals
     // \file[<opts>]
-    // code, finance, use ascii-math?
+    // code, use ascii-math?
+    // `finance` is extra-compiler flag, stash in .lmrc
+    //      
     fn file() {
 
     }
 
-    // \style{<css>}{<>}
+    // \style[.{<css-js>}]{<>}
 
-    // \eval{<expr>}
+    // \eval['expr']
     // VERYYYYYYY COMPLEX
     // fn eval(state , body: &'a [u8]) {
         

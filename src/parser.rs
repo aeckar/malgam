@@ -6,8 +6,10 @@ use crate::tape::Tape;
 use crate::{InlineFormat, Numbering, Token, TokenType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ParserConfig {
-    support_inline_math: bool,
+pub struct MarkupConf {
+    inline_math: bool,  // `finance`
+    ascii_math: bool,   // `ascii`
+    code_lang: &
 }
 
 /// Encapsulates mutable state shared between different handlers during Pass 1.
@@ -36,7 +38,7 @@ struct FirstPass {
 
 /// Contains global parser state.
 #[derive(Debug)]
-pub struct Parser<'a> {
+pub struct Markup<'a> {
     ///the tokens are generated in the pre-pass, and
     /// then used in the main pass to generate the output.
     tokens: Vec<Token<'a>>,
@@ -45,16 +47,24 @@ pub struct Parser<'a> {
     pub input: &'a [u8],
 
     /// Configuration flags.
-    pub config: &'a ParserConfig,
+    pub config: &'a MarkupConf,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(config: &'a ParserConfig, input: &'a [u8]) -> Self {
+impl<'a> Markup<'a> {
+    pub fn new(config: &'a MarkupConf, input: &'a [u8]) -> Self {
         Self {
             tokens: Vec::new(),
             input,
             config,
         }
+    }
+
+    /// The entry point of the compiler.
+    /// 
+    /// todo
+    pub fn compile(&mut self) {
+        let pass1 = self.parse_virt_tokens();
+        let pass2 = self.parse_txt_tokens();
     }
 
     /// Pushes the token nside the input between the start and end indices.
@@ -70,12 +80,6 @@ impl<'a> Parser<'a> {
     #[inline]
     fn emit_cur(&mut self, tape: Tape, ty: TokenType<'a>, len: usize) {
         self.tokens.push(Token::new(ty, tape.pos, tape.pos + len));
-    }
-
-    //entry point
-    pub fn parse(&mut self) {
-        let pass1 = self.parse_virt_tokens();
-        let pass2 = self.parse_txt_tokens();
     }
 
     // ########################################## PASS 1 ##########################################
@@ -618,9 +622,9 @@ mod tests {
     use super::*;
 
     // Helper to initialize a parser with byte slices
-    fn init_parser<'a>(input: &'a str) -> Parser<'a> {
-        Parser::new(
-            &ParserConfig {
+    fn init_parser<'a>(input: &'a str) -> Markup<'a> {
+        Markup::new(
+            &MarkupConf {
                 support_inline_math: true,
             },
             input.as_bytes(),

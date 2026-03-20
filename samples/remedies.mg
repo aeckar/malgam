@@ -1,5 +1,7 @@
 # focus on functionality for now, branding can wait
 
+working name: MALGAM (.mg) / MALGAM OBJECT NOTATION (.mon) / MALGAM COMPILER (mgc)
+
 =remedies
 
 my compiler is a speculative finite state machine
@@ -95,3 +97,5 @@ trailing tabs/ws ignored
 // quote using [text][alias]
 // insert using {{id}}
 // in documentation, provide links to asciimath, latex (mathjax)
+
+I guess that's why most production repos look kind of cluttered, because a lot of that is just organizational redundancy. 

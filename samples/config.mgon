@@ -1,0 +1,10 @@
+.{
+    my-paragraph =
+        | this is
+        | a type of
+        | multiline string
+        ,
+    finance-mode = true,
+}// Trailing Commas (The RSI Savior)
+// on ENTER after trailing =, start multiline string
+// on `,` after |, replace with single `,`
