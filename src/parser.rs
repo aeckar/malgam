@@ -5,11 +5,19 @@ use crate::slice_ext::SliceExt;
 use crate::tape::Tape;
 use crate::{InlineFormat, Numbering, Token, TokenType};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Dynamic configuration optionsset by the `\file` macro or by `config.mgon`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkupConf {
-    inline_math: bool,  // `finance`
     ascii_math: bool,   // `ascii`
-    code_lang: &
+    code_lang: String,  // `code`
+}
+
+/// Static configuration options set using compiler flags or by `config.mgon`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerConf {
+    /// If true, the compiler does not recognize inline
+    /// math formatting to make writing finances easier. 
+    finance_mode: bool,
 }
 
 /// Encapsulates mutable state shared between different handlers during Pass 1.
@@ -46,16 +54,20 @@ pub struct Markup<'a> {
     /// The input text.
     pub input: &'a [u8],
 
-    /// Configuration flags.
-    pub config: &'a MarkupConf,
+    /// Dynamic configuration.
+    pub dyn_conf: &'a MarkupConf,
+
+    /// Static configuration.
+    pub static_conf: &'a CompilerConf,
 }
 
 impl<'a> Markup<'a> {
-    pub fn new(config: &'a MarkupConf, input: &'a [u8]) -> Self {
+    pub fn new(dyn_conf: &'a MarkupConf, static_conf: &'a CompilerConf, input: &'a [u8]) -> Self {
         Self {
             tokens: Vec::new(),
             input,
-            config,
+            dyn_conf,
+            static_conf,
         }
     }
 
@@ -433,7 +445,7 @@ impl<'a> Markup<'a> {
             );
             tape.pos += 2; // stop at last '$$'
         }
-        if !self.config.support_inline_math {
+        if self.static_conf.finance_mode {
             return None;
         }
         if !tape.seek_at_in_pgraph(pass.pgraph_spacing, b"$") {
@@ -621,13 +633,4 @@ impl<'a> Markup<'a> {
 mod tests {
     use super::*;
 
-    // Helper to initialize a parser with byte slices
-    fn init_parser<'a>(input: &'a str) -> Markup<'a> {
-        Markup::new(
-            &MarkupConf {
-                support_inline_math: true,
-            },
-            input.as_bytes(),
-        )
-    }
 }

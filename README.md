@@ -1,2 +1,2 @@
-# lrmc
-Lightweight Rust Markup Compiler
+# Malgam
+High-performance programmable markup compiler WIP

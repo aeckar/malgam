@@ -99,3 +99,8 @@ trailing tabs/ws ignored
 // in documentation, provide links to asciimath, latex (mathjax)
 
 I guess that's why most production repos look kind of cluttered, because a lot of that is just organizational redundancy. 
+later: MD -> MG transpiler (will be used by LSP)
+
+// HTML output should automatically handle
+    light/dark mode
+    
