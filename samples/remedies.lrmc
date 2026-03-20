@@ -62,5 +62,36 @@ snippet for <'a>
     }
 
     //You mentioned they are used "sporadically between handlers." This is actually a sign that they belong in a Context object.
+// execute macros in batches
+
+//Pre-compiled Bytecode: If you are running the same JS "macro files" repeatedly, pre-compile them to bytecode (if using QuickJS) or use V8 snapshots. This skips the JS parsing phase for every document.
 
     // use of state makes clearer when semi-global state is changed or just viewed
+
+auto copy-paste code lang
+option for auto-eq numbers
+trailing tabs/ws ignored
+
+// builtin special highlighting for: \eval \style \def
+// MACRO ARGS: if present, true; if not, false ( or can be assigned t/f); if assigned, string
+// would be very hard to get syntax highlighting for macro bodies, so reserve for short DSLs
+// if just given expression, assign to property named `value`
+// allow single and double quotes
+//auto de indent/indent on copypaste
+//later: links like \a[1]{this} and
+// \href{
+//   1: google.com
+// }
+// virtual tokens
+// auto-renumbering of list items by formatter
+// mostly variable-length
+// tokens do not need reflect text 1:1
+// focus on CONTENT not FORMATTING
+/*
+\table[striped,total,head='both',explicit]
+    explicit - explicit row dividers
+\file[finance,code='c'|..,math='ascii'|'latex']
+*/
+// quote using [text][alias]
+// insert using {{id}}
+// in documentation, provide links to asciimath, latex (mathjax)

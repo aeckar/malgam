@@ -12,7 +12,7 @@ impl SliceExt for &[u8] {
         let mut bytes = *self;
         while let [first, rest @ ..] = bytes {
             // peel off front
-            if first.is_ws() {
+            if first.is_flank_ws() {
                 bytes = rest;
             } else {
                 break;
@@ -20,7 +20,7 @@ impl SliceExt for &[u8] {
         }
         while let [rest @ .., last] = bytes {
             // peel off back
-            if last.is_ws() {
+            if last.is_flank_ws() {
                 bytes = rest;
             } else {
                 break;

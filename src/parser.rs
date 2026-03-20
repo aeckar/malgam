@@ -1,5 +1,6 @@
 //! Don't check for UTF-8 correctness; leave that to the user.
 
+use crate::char_ext::CharExt;
 use crate::slice_ext::SliceExt;
 use crate::tape::Tape;
 use crate::{InlineFormat, Numbering, Token, TokenType};
@@ -73,8 +74,8 @@ impl<'a> Parser<'a> {
 
     //entry point
     pub fn parse(&mut self) {
-        let pass1 = self.pass_1();
-        let pass2 = self.pass_2();
+        let pass1 = self.parse_virt_tokens();
+        let pass2 = self.parse_txt_tokens();
     }
 
     // ########################################## PASS 1 ##########################################
@@ -182,10 +183,10 @@ impl<'a> Parser<'a> {
             .collect();
     }
 
-    /// **PASS 1: COLLECT VIRTUAL TOKENS**
+    /// **PASS 1: PARSE VIRTUAL TOKENS**
     ///
     /// todo
-    fn pass_1(&mut self) -> FirstPass {
+    fn parse_virt_tokens(&mut self) -> FirstPass {
         let mut pass = FirstPass {
             in_alt_txt: false,
             pgraph_spacing: 2,
@@ -195,7 +196,7 @@ impl<'a> Parser<'a> {
         let mut tape = Tape::new(self.input);
 
         // Because these symbols may show up in prose,
-        // we should expect them to most likely be plain text first
+        // we should expect them to most likely be plain text first.
         while let Some(&ch) = self.input.get(tape.pos) {
             let next_tape: Option<Tape<'a>> = match ch {
                 // ordered by expected frequency
@@ -219,6 +220,7 @@ impl<'a> Parser<'a> {
                 b'[' => self.handle_obrac(&mut pass, tape),
                 b']' => self.handle_cbrac(&pass, tape),
                 b'=' => self.handle_equals(&mut pass, tape),
+                b'"' | b'\'' => self.handle_quote(tape),
                 b'\\' => self.handle_bslash(tape),
                 b'#' => {
                     tape.seek_at(b"\n"); // comment
@@ -231,11 +233,19 @@ impl<'a> Parser<'a> {
             }
             tape.adv();
         }
-        self.tokens.push(Token::new(TokenType::EOF, tape.raw.len(), tape.raw.len()));
+        self.tokens
+            .push(Token::new(TokenType::Eof, tape.raw.len(), tape.raw.len()));
         self.prune_tokens();
         self.tokens
             .sort_unstable_by(|t1, t2| t1.start.cmp(&t2.start));
         pass
+    }
+
+    /// Resolves whether a `'` or `"` character belongs to a block quote
+    /// (shorthand or long-form) or plain text.
+    #[must_use]
+    fn handle_quote(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+        ds
     }
 
     /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
@@ -332,7 +342,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Resolves whether a '-' character belongs to an unordered list item,
-    /// a checkbox, or plain text.
+    /// a checkbox, a horizontal rule, or plain text.
     #[must_use]
     fn handle_dash(&mut self, pass: &mut FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if matches!(tape.peek_back(), Some(b'o') | Some(b'x')) {
@@ -355,6 +365,15 @@ impl<'a> Parser<'a> {
         }
         if !tape.is_cur_prefix() {
             return None;
+        }
+        if tape.at(b"---") {
+            tape.pos += 3;
+            let tail = tape.consume(|ch, _| ch != b'\n');
+            if tail.iter().all(|ch| ch.is_flank_ws()) {
+                self.emit_cur(tape, TokenType::HorizontalRule, 3);
+                tape.dec();
+                return Some(tape); // stop at last '-'
+            }
         }
         self.emit_cur(
             tape,
@@ -427,7 +446,7 @@ impl<'a> Parser<'a> {
         Some(tape) // stop at closing '$'
     }
 
-    /// Resolves whether a ` character belongs to inline code or plain text.
+    /// Resolves whether a '`' character belongs to inline code or plain text.
     #[must_use]
     fn handle_btick(&mut self, pass: &FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
@@ -565,8 +584,10 @@ impl<'a> Parser<'a> {
 
     // ########################################## PASS 2 ##########################################
 
+    /// **PASS 2: PARSE PLAINTEXT TOKENS**
+    ///
     /// todo
-    fn pass_2(&mut self) {
+    fn parse_txt_tokens(&mut self) {
         //here, we have all the meaningful virtual tokens found
         // I don't know what to do with the pair heap yet.
         // However, just iterate over it. Match the position to the next one in the virtual tokens.

@@ -10,9 +10,30 @@ pub struct Tape<'a> {
     pub pos: usize,
 }
 
+impl<'a> Iterator for Tape<'a> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ch = *self.raw.get(self.pos)?;
+        self.pos += 1;
+        Some(ch)
+    }
+}
+
 impl<'a> Tape<'a> {
     pub fn new(raw: &'a [u8]) -> Self {
         Self { raw, pos: 0 }
+    }
+
+    /// Returns the **current** character, if exists, before incrementing the current position.
+    ///
+    /// This function is primarily used for iteration.
+    /// If used for iteration, the current position may be modified concurrently.
+    #[inline(always)]
+    pub fn next(&mut self) -> Option<&u8> {
+        let ch = self.raw.get(self.pos);
+        self.pos += 1;
+        ch
     }
 
     /// Advances the current position by 1 character.
@@ -66,14 +87,14 @@ impl<'a> Tape<'a> {
     #[must_use]
     #[inline]
     pub fn is_l_clear(&self, pos: usize) -> bool {
-        pos == 0 || self.raw.get(pos - 1).is_none_or(|ch| ch.is_ws())
+        pos == 0 || self.raw.get(pos - 1).is_none_or(|ch| ch.is_flank_ws())
     }
 
     /// Returns true if the character at the given position has clearance on its right side.
     #[must_use]
     #[inline]
     pub fn is_r_clear(&self, pos: usize) -> bool {
-        self.raw.get(pos + 1).is_none_or(|ch| ch.is_ws())
+        self.raw.get(pos + 1).is_none_or(|ch| ch.is_flank_ws())
     }
 
     /// Returns true if the character cluster whose last character is at
@@ -275,7 +296,7 @@ impl<'a> Tape<'a> {
             if c == b'\n' {
                 return true;
             }
-            if !c.is_ws() {
+            if !c.is_flank_ws() {
                 return false;
             }
         }
