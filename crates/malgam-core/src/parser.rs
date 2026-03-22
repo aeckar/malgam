@@ -1,9 +1,8 @@
 //! Don't check for UTF-8 correctness; leave that to the user.
 
-use crate::char_ext::CharExt;
-use crate::slice_ext::SliceExt;
+use crate::prelude::{CharExt, SliceExt};
 use crate::tape::Tape;
-use crate::{InlineFormat, Numbering, Token, TokenType};
+use crate::token::{InlineFormat, Numbering, Token, TokenType};
 
 /// Dynamic configuration optionsset by the `\file` macro or by `config.mgon`.
 #[derive(Debug, Clone, PartialEq, Eq)]

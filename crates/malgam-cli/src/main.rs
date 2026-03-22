@@ -2,16 +2,6 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
 
-mod parser;
-mod token;
-mod char_ext;
-mod tape;
-mod etc;
-mod slice_ext;
-mod r#macro;
-
-pub use self::{parser::*, token::*, char_ext::*, tape::*, etc::*, slice_ext::*, r#macro::*};
-
 #[derive(Parser, Debug)]
 #[command(name = "mgc")]
 #[command(version = "0.1.0")]

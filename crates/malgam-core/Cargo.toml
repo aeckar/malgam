@@ -1,0 +1,20 @@
+[package]
+name = "malgam-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+enum-ordinalize = "4.3.2"
+boa_engine = "0.21.0"
+pulldown-cmark = "0.13.3"
+csv = "1.4.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[features]
+# default = ["compile", "format"]
+# compile = []
+# format = []
+# transpile = ["markdown-parser-crate"] # Only pull in Markdown deps if needed
+
+[lib]
+path = "src/lib.rs"

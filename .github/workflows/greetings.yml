@@ -1,0 +1,32 @@
+name: Greetings
+
+on: [pull_request_target, issues]
+
+jobs:
+  greeting:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            Welcome to the Malgam repository! 🛠️
+
+            We appreciate you taking the time to report an issue or suggest a feature. To help us debug or iterate faster, please ensure you've included:
+
+            1. The version of the Malgam CLI (`mgc --version`).
+            1. A minimal code snippet that reproduces the behavior.
+            1. Your expected outcome vs. the actual result.
+
+            A contributor will review this shortly. In the meantime, feel free to look at the documentation in the `docs/` folder!
+          pr-message: |
+            "Thank you for the Pull Request! 🚀
+
+            Contributions to the Malgam core, CLI, or Editor are the lifeblood of this project. Please ensure:
+
+            1. Your code follows the workspace structure (logic in malgam-core, UI in malgam-editor).
+            1. You've run cargo fmt and cargo test locally.
+            1. We'll review your changes as soon as the CI pipeline clears. Welcome to the build!"

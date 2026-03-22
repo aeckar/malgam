@@ -1,4 +1,4 @@
-use crate::{char_ext::CharExt, etc::count_indent};
+use crate::prelude::{CharExt, count_indent};
 
 /// Text input and an index associated with an element in it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
