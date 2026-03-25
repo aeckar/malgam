@@ -250,10 +250,10 @@ impl<'a> Tape<'a> {
         self.seek_in_pgraph(spacing, |_, pos| self.raw[pos..].starts_with(query))
     }
 
-    /// Advances `pos` until `query` is found within the current paragraph.
+    /// Advances `pos` until `pred` returns true within the current paragraph.
     ///
     /// Returns `true` if found (leaving `pos` at the match), or `false`
-    /// and restores `pos` on failure.
+    /// and `pos` is restored to its original value.
     #[inline]
     pub fn seek_in_pgraph<F>(&mut self, spacing: u8, pred: F) -> bool
     where
@@ -272,11 +272,13 @@ impl<'a> Tape<'a> {
     /// starts with the given string.
     #[must_use]
     #[inline]
-    pub fn at(&self, query: &'_ [u8]) -> bool {
-        self.raw.starts_with(query)
+    pub fn is_at(&self, query: &'_ [u8]) -> bool {
+        self.raw[self.pos..].starts_with(query)
     }
 
-    /// Returns true if there are no non-whitespace characters between
+    /// Returns true if the current character belongs to a line prefix.
+    /// 
+    /// A character is part of a line prefix if there are no non-whitespace characters between
     /// the current character and the previous newline, the beginning of the input, or
     /// itself if it is a newline.
     #[must_use]

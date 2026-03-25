@@ -20,7 +20,7 @@ pub struct CompilerConf {
 }
 
 /// Encapsulates mutable state shared between different handlers during Pass 1.
-struct FirstPass {
+struct FirstPassCtx {
     /// The number of spaces used to distinguish between two different paragraphs.
     ///
     /// This is 1 between single-line components (such as headings) and any other type of component,
@@ -106,7 +106,7 @@ impl<'a> Markup<'a> {
     #[must_use]
     fn try_pair_cur(
         &mut self,
-        pass: &mut FirstPass,
+        pass: &mut FirstPassCtx,
         mut tape: Tape<'a>,
         mask: u8,
     ) -> Option<Tape<'a>> {
@@ -201,8 +201,8 @@ impl<'a> Markup<'a> {
     /// **PASS 1: PARSE VIRTUAL TOKENS**
     ///
     /// todo
-    fn parse_virt_tokens(&mut self) -> FirstPass {
-        let mut pass = FirstPass {
+    fn parse_virt_tokens(&mut self) -> FirstPassCtx {
+        let mut pass = FirstPassCtx {
             in_alt_txt: false,
             pgraph_spacing: 2,
             open_fmts: Vec::new(),
@@ -237,7 +237,7 @@ impl<'a> Markup<'a> {
                 b'=' => self.handle_equals(&mut pass, tape),
                 b'"' | b'\'' => self.handle_quote(tape),
                 b'\\' => self.handle_bslash(tape),
-                b'#' => {
+                b';' => {   // divider comment ';;' handled by editor
                     tape.seek_at(b"\n"); // comment
                     Some(tape)
                 }
@@ -256,16 +256,19 @@ impl<'a> Markup<'a> {
         pass
     }
 
-    /// Resolves whether a `'` or `"` character belongs to a block quote
+    /// Resolves whether a `'` or `"` character belongs to an admonition, a block quote
     /// (shorthand or long-form) or plain text.
     #[must_use]
     fn handle_quote(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
-        ds
+        if let Some(tape) = self.handle_block(&mut tape, start, b"\n\"\"\"") || let Some(tape) = self.handle_block(&mut tape, start, b"\n'''") {
+            return Some(tape);
+        }
+
     }
 
     /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
     #[must_use]
-    fn handle_obrac(&mut self, pass: &mut FirstPass, tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_obrac(&mut self, pass: &mut FirstPassCtx, tape: Tape<'a>) -> Option<Tape<'a>> {
         if pass.in_alt_txt {
             return None;
         }
@@ -284,7 +287,7 @@ impl<'a> Markup<'a> {
 
     /// Resolves whether a ']' character belongs to a link body, an embed body, or plain text.
     #[must_use]
-    fn handle_cbrac(&mut self, pass: &FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_cbrac(&mut self, pass: &FirstPassCtx, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if !pass.in_alt_txt {
             return None;
         }
@@ -317,7 +320,7 @@ impl<'a> Markup<'a> {
 
     /// Resolves whether a '.' character belongs to an ordered list item or plain text.
     #[must_use]
-    fn handle_dot(&mut self, pass: &mut FirstPass, tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_dot(&mut self, pass: &mut FirstPassCtx, tape: Tape<'a>) -> Option<Tape<'a>> {
         if tape.is_cur_prefix() {
             self.emit_cur(
                 tape,
@@ -359,7 +362,7 @@ impl<'a> Markup<'a> {
     /// Resolves whether a '-' character belongs to an unordered list item,
     /// a checkbox, a horizontal rule, or plain text.
     #[must_use]
-    fn handle_dash(&mut self, pass: &mut FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_dash(&mut self, pass: &mut FirstPassCtx, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if matches!(tape.peek_back(), Some(b'o') | Some(b'x')) {
             // checkbox
             tape.dec(); // decrement to enable check on line start
@@ -381,8 +384,8 @@ impl<'a> Markup<'a> {
         if !tape.is_cur_prefix() {
             return None;
         }
-        if tape.at(b"---") {
-            tape.pos += 3;
+        if tape.is_at(b"--") {
+            tape.pos += 2;
             let tail = tape.consume(|ch, _| ch != b'\n');
             if tail.iter().all(|ch| ch.is_flank_ws()) {
                 self.emit_cur(tape, TokenType::HorizontalRule, 3);
@@ -403,7 +406,7 @@ impl<'a> Markup<'a> {
 
     /// Resolves whether a '=' character belongs to a heading or plain text.
     #[must_use]
-    fn handle_equals(&mut self, pass: &mut FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_equals(&mut self, pass: &mut FirstPassCtx, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if !tape.is_cur_prefix() {
             return None;
         }
@@ -422,9 +425,9 @@ impl<'a> Markup<'a> {
     /// Resolves whether a '$' character belongs to inline math,
     /// a dollar sign literal (if enabled), or plain text.
     #[must_use]
-    fn handle_dollar(&mut self, pass: &FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_dollar(&mut self, pass: &FirstPassCtx, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
-        if tape.at(b"$$") {
+        if tape.is_at(b"$$") {
             if !tape.is_cur_prefix() {
                 return None;
             }
@@ -463,32 +466,13 @@ impl<'a> Markup<'a> {
 
     /// Resolves whether a '`' character belongs to inline code or plain text.
     #[must_use]
-    fn handle_btick(&mut self, pass: &FirstPass, mut tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_btick(&mut self, pass: &FirstPassCtx, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         let start = tape.pos;
         let spacing = pass.pgraph_spacing;
-        if tape.at(b"```") {
-            if !tape.is_cur_prefix() {
-                return None;
-            }
-            tape.pos += 3; // skip over '```'
-            let lang = tape.consume(|ch, _| ch != b'\n');
-            let body_start = tape.pos + 1;
-            if !tape.seek_at(b"\n```") {
-                // failed lookahead
-                return None;
-            }
-            self.emit(
-                TokenType::CodeBlock {
-                    body: &tape.raw[body_start..tape.pos],
-                    lang: lang.trim_ws(),
-                },
-                start,
-                tape.pos + 1,
-            );
-            tape.pos += 3; // stop at last '`'
+        if let Some(tape) = self.handle_block(&mut tape, start, b"\n```") {
             return Some(tape);
         }
-        if tape.at(b"``") {
+        if tape.is_at(b"``") {
             tape.adv(); // skip over first '`' of open
             if !tape.seek_at_in_pgraph(spacing, b"``") {
                 return Some(tape); // stop at 2nd '`'; treat as text
@@ -517,17 +501,47 @@ impl<'a> Markup<'a> {
         Some(tape) // stop at closing '`'
     }
 
+
+    /// Resolves a code block or block quote.
+    /// 
+    /// `stop` is the 3-character delimiter 
+    fn handle_block(&mut self, tape: &mut Tape<'a>, start: usize, stop: &'static [u8]) -> Option<Tape<'a>> {
+        if tape.is_at(&stop[1..]) {
+            if !tape.is_cur_prefix() {
+                return None;
+            }
+            tape.pos += 3; // skip over '```'
+            let lang = tape.consume(|ch, _| ch != b'\n');
+            let body_start = tape.pos + 1;
+            if !tape.seek_at(stop) {
+                // failed lookahead
+                return None;
+            }
+            self.emit(
+                TokenType::CodeBlock {
+                    body: &tape.raw[body_start..tape.pos],
+                    lang: lang.trim_ws(),
+                },
+                start,
+                tape.pos + 1,
+            );
+            tape.pos += 3; // stop at last '`'
+            return Some(*tape);
+        }
+        None
+    }
+    
     /// Resolves whether a `*` character belongs to a bold token,
     /// an italic token, both, or plain text.
     #[must_use]
-    fn handle_star(&mut self, pass: &mut FirstPass, tape: Tape<'a>) -> Option<Tape<'a>> {
-        if tape.at(b"***") {
+    fn handle_star(&mut self, pass: &mut FirstPassCtx, tape: Tape<'a>) -> Option<Tape<'a>> {
+        if tape.is_at(b"***") {
             self.try_pair_cur(
                 pass,
                 tape,
                 InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG,
             )
-        } else if tape.at(b"**") {
+        } else if tape.is_at(b"**") {
             self.try_pair_cur(pass, tape, InlineFormat::BOLD_FLAG)
         } else {
             // try for '*'

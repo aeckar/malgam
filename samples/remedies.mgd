@@ -104,3 +104,7 @@ later: MD -> MG transpiler (will be used by LSP)
 // HTML output should automatically handle
     light/dark mode
     
+in editor: use `>` as shorthand for "insert this"
+    `>draw<ENTER>` -> embedded, resizable excalidraw frame
+    no need to tab out, can click out since user is already holding mouse/stylus
+    AI fixes squiggly syntax in macros automagically
