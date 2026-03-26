@@ -18,6 +18,8 @@ pub trait CharExt {
     /// This is used to determine whether certain characters
     /// (like `*` for bold/italic) should be treated as text or as formatting markers,
     /// based on their surrounding context.
+    /// 
+    /// Recognition of these whitespace characters extends to HGON also.
     #[must_use]
     fn is_flank_ws(&self) -> bool;
 

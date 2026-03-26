@@ -6,6 +6,7 @@ use std::str;
 use thiserror::Error;
 
 use crate::compile::Compile;
+use crate::ext::CharExt;
 use crate::tape::Tape;
 
 pub type HgonResult = Result<HgonValue, HgonError>;
@@ -47,7 +48,7 @@ impl Display for HgonValue {
                     write!(f, "{item}");
                     write!(f, ",");
                 }
-                write!(f, "}}");
+                write!(f, "}}")
             },
             Self::Object(map) => {
                 write!(f, ".{{");
@@ -55,7 +56,7 @@ impl Display for HgonValue {
                     write!(f, "{key}:{val}");
                     write!(f, ",");
                 }
-                write!(f, "}}");
+                write!(f, "}}")
             },
         };
         Ok(())
@@ -119,7 +120,7 @@ pub enum HgonError {
     #[error("Illegal character '{ch}' at index {pos}")]
     IllegalCharacter { ch: u8, pos: usize },
 
-    #[error("Expected a closing '{close}' for '{open}' at {pos}")]
+    #[error("Expected a closing '{close}' for '{open}' at {open_pos}")]
     MissingCloser { open: u8, close: u8, open_pos: usize }
 }
 
@@ -200,16 +201,75 @@ impl<'a> Hgon<'a> {
         }
     }
 
-    fn parse_obj(&mut self, mut tape: Tape<'a>) -> HgonResult {
+fn parse_obj(&mut self, mut tape: Tape<'a>) -> HgonResult {
+        if tape.cur() != Some(b'{') {
+            return Err(HgonError::IllegalCharacter { ch: tape.cur().unwrap_or(0), pos: tape.pos });
+        }
+        tape.adv(); // skip '{'
 
+        let mut map = std::collections::HashMap::new();
+
+        loop {
+            tape.seek(|ch,_| !ch.is_flank_ws());
+            if tape.cur() == Some(b'}') {
+                tape.adv();
+                break;
+            }
+
+            // 1. Parse Key (assuming keys are unquoted or strings)
+            let key_slice = tape.consume(|c, _| c.is_ascii_alphanumeric() || c == b'_');
+            if key_slice.is_empty() {
+                 return Err(HgonError::MissingValue { pos: tape.pos });
+            }
+            let key = unsafe { std::str::from_utf8_unchecked(key_slice) }.to_string();
+
+            tape.seek(|ch,_| !ch.is_flank_ws());
+            if tape.cur() != Some(b':') {
+                return Err(HgonError::IllegalCharacter { ch: tape.cur().unwrap_or(0), pos: tape.pos });
+            }
+            tape.adv(); // skip ':'
+
+            // 2. Parse Value
+            let val = self.parse_any(tape)?;
+            map.insert(key, val);
+
+            // 3. Handle Delimiters
+            tape.seek(|ch,_| !ch.is_flank_ws());
+            if tape.cur() == Some(b',') {
+                tape.adv();
+            }
+        }
+
+        Ok(HgonValue::Object(map))
     }
 
     fn parse_list(&mut self, mut tape: Tape<'a>) -> HgonResult {
+        let mut items = Vec::new();
 
-    }
+        loop {
+            tape.seek(|ch,_| !ch.is_flank_ws());
+            if tape.cur() == Some(b'}') {
+                tape.adv();
+                break;
+            }
 
-    fn parse_str(&mut self, mut tape: Tape<'a>) -> HgonResult {
-        
+            if tape.cur().is_none() {
+                return Err(HgonError::MissingCloser { open: b'{', close: b'}', open_pos: tape.pos });
+            }
+
+            let val = self.parse_any(tape)?;
+            items.push(val);
+
+            tape.seek(|ch,_| !ch.is_flank_ws());
+            if tape.cur() == Some(b',') {
+                tape.adv();
+            } else if tape.cur() != Some(b'}') {
+                // If no comma and no closer, it's a syntax error
+                return Err(HgonError::IllegalCharacter { ch: tape.cur().unwrap_or(0), pos: tape.pos });
+            }
+        }
+
+        Ok(HgonValue::List(items))
     }
 }
 
