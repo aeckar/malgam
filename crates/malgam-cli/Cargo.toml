@@ -8,5 +8,6 @@ homepage = "https://github.com/aeckar/malgam"
 repository = "https://github.com/aeckar/malgam"
 
 [dependencies]
+malgam-core = { path = "../malgam-core" }
 clap = { version = "4.6.0", features = ["derive", "unstable-doc", "unstable-styles"] }
 anyhow = "1.0.102"

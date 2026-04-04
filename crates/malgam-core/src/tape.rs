@@ -1,5 +1,6 @@
 use crate::ext::CharExt;
 use memchr::{memchr, memchr2, memchr3, memmem, memrchr2};
+use std::ops::{Index,Range};
 
 /// Counts the number of tabs or the number of space characters divided by 4 (floored).
 /// 
@@ -38,6 +39,14 @@ let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &ch| match ch {
 pub struct Tape<'a> {
     pub raw: &'a [u8],
     pub pos: usize,
+}
+
+impl<'a> Index<usize> for Tape<'a> {
+    type Output = u8;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.raw[index]
+    }
 }
 
 impl<'a> Iterator for Tape<'a> {
@@ -186,6 +195,11 @@ impl<'a> Tape<'a> {
             }
         }
         None
+    }
+
+    #[inline]
+    pub fn slice(&self, range: Range<usize>) -> &'a [u8] {
+        &self.raw[range]
     }
 
     /// Advance `pos` until `pred` returns false for the character at the

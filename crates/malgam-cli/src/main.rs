@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::path::PathBuf;
+use malgam_core::mal::{Malgam, MalgamConf};
+use std::{path::PathBuf};
 
 #[derive(Parser, Debug)]
 #[command(name = "mgc")]
@@ -49,5 +50,20 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn fmt() {
+    
+}
+
+fn serve() {
+
+}
+
+// since using relatively small files, copy entire file to memory
+
+fn build(input: PathBuf) -> Result<()> {
+    let markup = Malgam::new(MalgamConf(), mgc_conf, input);
     Ok(())
 }

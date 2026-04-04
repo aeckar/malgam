@@ -7,7 +7,6 @@ const CHAR_TABLE: [u8; 256] = {
     let mut table = [0u8; 256];
     table[b' ' as usize] = IS_HG_WS | (1 << FLAG_BITS);
     table[b'\t' as usize] = IS_HG_WS | (4 << FLAG_BITS);
-    table[b'\n' as usize] = IS_HG_WS;
     table[b'\r' as usize] = IS_HG_WS | (1 << FLAG_BITS);
     
     let bytes = concat!(
@@ -26,7 +25,7 @@ const CHAR_TABLE: [u8; 256] = {
 
 pub trait CharExt {
     /// Returns true if this is a flanking
-    /// whitespace character (space, tab, newline, or carriage return).
+    /// whitespace character (space, tab, or carriage return).
     ///
     /// This is used to determine whether certain characters
     /// (like `*` for bold/italic) should be treated as text or as formatting markers,
@@ -43,7 +42,7 @@ pub trait CharExt {
     #[must_use]
     fn hg_ws_len(&self) -> u8;
 
-    /// Returns true if this character may be part of an unescaped key
+    /// Returns true if this character may be part of an unescaped (without `""`) key
     /// in an HGON object.
     /// 
     /// Letters, digits, dashes, underscores, dots, and dollar signs are accepted.

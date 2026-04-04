@@ -289,7 +289,6 @@ impl<'a> Malgam<'a> {
         if let Some(tape) = self.handle_block(&mut tape, b"\n'''") {
             return Some(tape);
         }
-        if 
         ""
 
     }
@@ -301,7 +300,7 @@ impl<'a> Malgam<'a> {
             return None;
         }
         tape.poll_in_pgraph(pass.pgraph_spacing, |ch, pos| {
-            let next = tape.raw[pos + 1];
+            let next = tape[pos + 1];
             ch == b']' && (next == b'(' || next == b'[')
         })?;
         if tape.peek_back() == Some(b'!') {
@@ -401,7 +400,7 @@ impl<'a> Malgam<'a> {
                 tape,
                 TokenType::Checkbox {
                     depth: tape.count_indent(),
-                    filled: tape.raw[tape.pos] == b'x',
+                    filled: tape[tape.pos] == b'x',
                 },
                 2,
             );
@@ -468,7 +467,7 @@ impl<'a> Malgam<'a> {
 
             self.emit(
                 TokenType::MathBlock {
-                    body: &tape.raw[body_start..tape.pos],
+                    body: &tape.slice(body_start..tape.pos),
                 },
                 start,
                 tape.pos + 1,
@@ -484,7 +483,7 @@ impl<'a> Malgam<'a> {
         }
         self.tokens.push(Token::new(
             TokenType::InlineMath {
-                body: &tape.raw[start + 1..tape.pos],
+                body: &tape.slice(start + 1..tape.pos),
             },
             start,
             tape.pos + 1,
@@ -510,7 +509,7 @@ impl<'a> Malgam<'a> {
             }
             self.emit(
                 TokenType::CodeBlock {
-                    body: &tape.raw[body_start..tape.pos],
+                    body: &tape.slice(body_start..tape.pos),
                     lang: lang.trim_hg_ws(),
                 },
                 start,
@@ -527,7 +526,7 @@ impl<'a> Malgam<'a> {
             tape.adv(); // skip over first '`' of closer
             self.emit(
                 TokenType::InlineRawCode {
-                    body: &tape.raw[start + 2..tape.pos],
+                    body: &tape.slice(start + 2..tape.pos),
                 },
                 start,
                 tape.pos + 1,
@@ -540,7 +539,7 @@ impl<'a> Malgam<'a> {
         }
         self.tokens.push(Token::new(
             TokenType::InlineCode {
-                body: &tape.raw[start + 1..tape.pos],
+                body: &tape.slice(start + 1..tape.pos),
             },
             start,
             tape.pos + 1,
@@ -599,7 +598,7 @@ impl<'a> Malgam<'a> {
             tape.adv(); // skip past ']'
             self.emit(
                 TokenType::MacroArgs {
-                    body: &tape.raw[next_pos + 1..tape.pos],
+                    body: &tape.slice(ext_pos + 1..tape.pos),
                 },
                 next_pos,
                 tape.pos,
@@ -616,7 +615,7 @@ impl<'a> Malgam<'a> {
             tape.adv(); // skip past '}'
             self.emit(
                 TokenType::MacroBody {
-                    body: &tape.raw[next_pos + 1..tape.pos],
+                    body: &tape[next_pos + 1..tape.pos],
                 },
                 next_pos,
                 tape.pos,
