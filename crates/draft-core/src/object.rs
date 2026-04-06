@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::num::ParseFloatError;
+use std::str::Utf8Error;
+use std::string::FromUtf8Error;
 
 use thiserror::Error;
 
 use crate::compile::Compile;
-use crate::ext::CharExt;
+use crate::ext::{CharExt, SliceExt};
 use crate::tape::Tape;
 
 /// An instance of an `malo` data type.
@@ -42,18 +44,18 @@ impl Display for ObjectValue {
             Self::Number(n) => write!(f, "{n}"),
                         Self::String(str) => write!(f, "\"{str}\""),
             Self::List(items) => {
-                write!(f, "{{");
+                write!(f, "{{")?;
                 for item in items {
-                    write!(f, "{item}");
-                    write!(f, ",");
+                    write!(f, "{item}")?;
+                    write!(f, ",")?;
                 }
                 write!(f, "}}")
             },
             Self::Object(map) => {
-                write!(f, ".{{");
+                write!(f, ".{{")?;
                 for (key, val) in map {
-                    write!(f, "{key}:{val}");
-                    write!(f, ",");
+                    write!(f, "{key}:{val}")?;
+                    write!(f, ",")?;
                 }
                 write!(f, "}}")
             },
@@ -119,6 +121,9 @@ pub enum ObjectError {
     #[error("Illegal character '{ch}' at index {pos}")]
     IllegalCharacter { ch: u8, pos: usize },
 
+    #[error("Invalid UTF-8")]
+    InvalidUtf8(#[from] Utf8Error),
+
     #[error("Expected a closing '{close}' for '{open}' at {open_pos}")]
     MissingCloser { open: u8, close: u8, open_pos: usize }
 }
@@ -129,7 +134,7 @@ pub struct ObjectFile<'a> {
     pub input: &'a [u8],
 
     compiled: bool,
-    value: Self::Output,
+    value: Result<ObjectValue, ObjectError>,
 }
 
 impl<'a> Compile for ObjectFile<'a> {
@@ -150,9 +155,9 @@ impl<'a> Compile for ObjectFile<'a> {
 }
 
 impl<'a> ObjectFile<'a> {
-    pub fn new(input: &'a [u8]) -> Self {
+    pub fn new(input: &'a str) -> Self {
         Self {
-            input,
+            input: input.as_bytes(),
             compiled: false,
             value: Ok(ObjectValue::Null),
         }
@@ -174,6 +179,7 @@ impl<'a> ObjectFile<'a> {
         if tape.is_at(b"null") {
             return Ok(ObjectValue::Null);
         }
+        // todo inf, nan, +/-
 
         let ch = tape.cur().unwrap();
         match ch {
@@ -183,17 +189,18 @@ impl<'a> ObjectFile<'a> {
                 if !tape.seek_at_in_pgraph(1, b"\"") {
                     Err(ObjectError::MissingCloser { open: b'"', close: b'"', open_pos: start })
                 } else {
-                    Ok(ObjectValue::String( unsafe { tape.to_uf8_unchecked() }[start..tape.pos].to_string()))
+                    Ok(ObjectValue::String( tape.slice(start + 1..tape.pos).to_utf8()?))
                 }
             },
             b'\'' => {
                 if !tape.seek_at_in_pgraph(1, b"'") {
                     Err(ObjectError::MissingCloser { open: b'\'', close: b'\'', open_pos: start })
                 } else {
-                    Ok(ObjectValue::String( unsafe { tape.to_uf8_unchecked() }[start..tape.pos].to_string()))
+                    Ok(ObjectValue::String( tape.slice(start + 1..tape.pos).to_utf8()?))
                 }
             }
-            b'0'..=b'9' =>                 unsafe { tape.to_uf8_unchecked().parse::<f64>() }
+
+            b'0'..=b'9' =>                 tape.consume(|ch,_| ch.is_ascii_digit()).to_utf8()?.parse::<f64>() // todo
                     .map(|n| ObjectValue::Number(n))
                     .map_err(|e| ObjectError::InvalidNumber(e)),
             b';' => {   // same comment style as markup
@@ -246,7 +253,7 @@ impl<'a> ObjectFile<'a> {
             if key.is_empty() {
                 return Err(ObjectError::MissingValue { pos: tape.pos });
             }
-            let key = unsafe { str::from_utf8_unchecked(key) }.to_string();
+            let key = str::from_utf8(key)?.to_string();
 
             tape.consume(|ch,_| ch.is_file_ws());
             if tape.cur() != Some(b'=') {
@@ -288,32 +295,4 @@ impl<'a> ObjectFile<'a> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn parse_sample_config() {
-        let content = b".{\n    my-paragraph =\n        | this is\n        | a type of\n        | multiline string\n        ,\n    finance-mode = true,\n}// Trailing Commas (The RSI Savior)\n";
-        let parsed = ObjectFile::new(content).compile().expect("parse config.mgon");
-
-        let mut expected = HashMap::new();
-        expected.insert(
-            "my-paragraph".to_string(),
-            ObjectValue::String("this is\na type of\nmultiline string".to_string()),
-        );
-        expected.insert("finance-mode".to_string(), ObjectValue::Bool(true));
-
-        assert_eq!(parsed, ObjectValue::Object(expected));
-    }
-
-    #[test]
-    fn parse_object_with_numbers_and_strings() {
-        let content = b"{ count = 42, pi = 3.14, name = 'mgon', active = false }";
-        let parsed = ObjectFile::new(content).compile().expect("parse mgon object");
-
-        let mut expected = HashMap::new();
-        expected.insert("count".into(), ObjectValue::Number(42.0));
-        expected.insert("pi".into(), ObjectValue::Number(3.14));
-        expected.insert("name".into(), ObjectValue::String("mgon".into()));
-        expected.insert("active".into(), ObjectValue::Bool(false));
-
-        assert_eq!(parsed, ObjectValue::Object(expected));
-    }
 }

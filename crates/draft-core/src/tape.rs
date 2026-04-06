@@ -64,10 +64,6 @@ impl<'a> Tape<'a> {
         Self { raw, pos: 0 }
     }
 
-    pub unsafe fn to_uf8_unchecked(&self) -> &'a str {
-        unsafe { str::from_utf8_unchecked(&self.raw[self.pos..]) }
-    }
-
     /// Returns the **current** character, if exists, before incrementing the current position.
     ///
     /// This function is primarily used for iteration.

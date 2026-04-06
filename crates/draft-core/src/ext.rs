@@ -1,3 +1,5 @@
+use std::str::Utf8Error;
+
 const IS_FILE_WS: u8 = 1 << 0; // 0000_0001
 const IS_KEY_PART: u8 = 1 << 1;    // 0000_0010
 const FLAG_BITS: u8 = 2;
@@ -70,6 +72,9 @@ impl CharExt for u8 {
 pub trait SliceExt {
     /// Returns a subslice with leading and trailing flanking white space removed.
     fn trim_file_ws(&self) -> Self;
+
+    /// Attempts to convert this slice to a UTF-8 string with the same contents.
+    fn to_utf8(&self) -> Result<String, Utf8Error>;
 }
 
 impl SliceExt for &[u8] {
@@ -94,5 +99,8 @@ impl SliceExt for &[u8] {
         }
         bytes
     }
-    
+
+    fn to_utf8(&self) -> Result<String, Utf8Error> {
+        String::from_utf8(self.to_vec()).map_err(|e| e.utf8_error())
+    }   
 }

@@ -72,7 +72,7 @@ struct MarkupOutput;//todo
 
 #[derive(Error, Debug)]
 pub enum MarkupError {
-    #[error("Input is not valid UTF-8")]
+    #[error("Invalid UTF-8")]
     InvalidUtf8(#[from] Utf8Error),
 }
 
