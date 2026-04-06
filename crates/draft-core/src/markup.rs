@@ -31,13 +31,8 @@ pub struct StaticConf {
 
     /// If true, the compiler does not perform a first pass to
     /// ensure the input is valid UTF-8.
-    /// 
-    /// todo link sanitization
-    /// todo protocol sanitization
-    /// 
-    /// ... extended to macro-generated output (there is either SAFE/NETWORK or FAST/LOCAL)
     trusted_mode: bool,
-}   // todo change to bitfield
+}
 
 #[derive(Error, Debug)]
 pub enum MarkupError {
@@ -530,7 +525,6 @@ impl<'a> FirstPass<'a> {
 /// Draft markup syntax.
 /// 
 /// todo explain compilation process
-/// todo use mutable state instead of return type for simplicity
 #[derive(Debug)]
 pub struct MarkupFile<'a> {
     /// The input text.
@@ -547,7 +541,9 @@ impl<'a> Compile for MarkupFile<'a> {
     type Output = Result<Ast<'a>, MarkupError>;
 
     fn compile(self) -> Self::Output {
-        self.validate_utf8()?;
+        if !self.static_conf.trusted_mode {
+            self.validate_utf8()?;
+        }
         let tokens = self.parse_virtual_tokens();
         let tokens = self.prune_bad_tokens(tokens);
         let tokens = self.parse_text_tokens(tokens);
@@ -639,6 +635,9 @@ impl<'a> MarkupFile<'a> {
     /// - links/embeds without a body
     /// - headings without text
     /// - list items without text
+    /// - todo empty quotes
+    /// - todo empty math blocks
+    /// - todo empty code blocks
     ///
     /// Since it would be incredibly difficult to determine whether a macro actually
     /// emits visible text or not, let's just assume they all do when pruning virtual tokens.
@@ -686,7 +685,7 @@ impl<'a> MarkupFile<'a> {
 
     #[must_use]
     fn parse_text_tokens(&self, mut tokens: Vec<Token<'a>>) -> Vec<Token<'a>> {
-        //here, we have all the meaningful virtual tokens found
+        // todo here, we have all the meaningful virtual tokens found
         // I don't know what to do with the pair heap yet.
         // However, just iterate over it. Match the position to the next one in the virtual tokens.
         let mut tape = Tape::new(self.input);
@@ -714,10 +713,4 @@ impl<'a> MarkupFile<'a> {
     fn assemble_ast(&self, mut tokens: Vec<Token<'a>>) -> Ast<'a> {
         self.tokens
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
 }

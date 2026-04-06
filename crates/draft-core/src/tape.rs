@@ -1,5 +1,5 @@
 use crate::ext::CharExt;
-use memchr::{memchr, memchr2, memchr3, memmem, memrchr2};
+use memchr::{memchr, memchr2, memchr3, memmem};
 use std::ops::{Index,Range};
 
 /// Counts the number of tabs or the number of space characters divided by 4 (floored).

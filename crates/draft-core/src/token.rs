@@ -125,7 +125,7 @@ impl TokenType<'_> {
 pub struct Token<'a> {
     pub ty: TokenType<'a>,
     pub start: usize,
-    pub end: usize, // exclusive
+    pub end: usize,
 }
 
 impl<'a> Token<'a> {

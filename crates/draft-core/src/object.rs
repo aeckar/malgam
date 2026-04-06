@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::num::ParseFloatError;
 use std::str::Utf8Error;
-use std::string::FromUtf8Error;
 
 use thiserror::Error;
 
@@ -115,11 +114,11 @@ pub enum ObjectError {
     #[error("Expected a value at index {pos}")]
     MissingValue { pos: usize },
 
-    #[error("Number cannot be parsed {_0}")]
-    InvalidNumber(#[from] ParseFloatError),
-
     #[error("Illegal character '{ch}' at index {pos}")]
     IllegalCharacter { ch: u8, pos: usize },
+
+    #[error("{_0}")]
+    InvalidNumber(lexical_core::Error),
 
     #[error("Invalid UTF-8")]
     InvalidUtf8(#[from] Utf8Error),
@@ -150,6 +149,18 @@ impl<'a> ObjectFile<'a> {
     }
 
     fn parse_any(&self, tape: &mut Tape<'a>) -> Result<ObjectValue, ObjectError> {
+        use lexical_core::format;
+        use lexical_core::parse_float_options as options;
+        const NUM_FMT: u128 = format::STANDARD  | format::LEADING_DIGIT_SEPARATOR;
+        const NUM_OPTIONS: options::Options = options::Options::builder()
+            .decimal_point(b'.')
+            .inf_string(Some(b"inf"))
+            .infinity_string(Some(b"infinity"))
+            .exponent(b'e')
+            .lossy(false)   // greater accuracy, slower on precise numbers
+            .nan_string(Some(b"nan"))
+            .build_strict();
+
         let start = tape.pos;
 
         // trivial cases
@@ -165,7 +176,6 @@ impl<'a> ObjectFile<'a> {
         if tape.is_at(b"null") {
             return Ok(ObjectValue::Null);
         }
-        // todo inf, nan, +/-
 
         let ch = tape.cur().unwrap();
         match ch {
@@ -185,9 +195,9 @@ impl<'a> ObjectFile<'a> {
                     Ok(ObjectValue::String( tape.slice(start + 1..tape.pos).to_utf8()?))
                 }
             }
-
-            b'0'..=b'9' =>                 tape.consume(|ch,_| ch.is_ascii_digit()).to_utf8()?.parse::<f64>() // todo
-                    .map(|n| ObjectValue::Number(n))
+            b'0'..=b'9' => lexical_core::parse_partial_with_options::<f64, NUM_FMT>(tape.slice(tape.pos..tape.raw.len()), &NUM_OPTIONS)
+                    .inspect(|&(_, len)| tape.pos += len)
+                    .map(|(n, _)| ObjectValue::Number(n))
                     .map_err(|e| ObjectError::InvalidNumber(e)),
             b';' => {   // same comment style as markup
                 Err(ObjectError::MissingValue { pos: start })
@@ -275,10 +285,4 @@ impl<'a> ObjectFile<'a> {
         }
         Ok(ObjectValue::List(items))
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
 }
