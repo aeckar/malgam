@@ -72,18 +72,27 @@ pub trait SliceExt {
     fn trim_file_ws(&self) -> Self;
 }
 
-impl SliceExt for &str {
+impl SliceExt for &[u8] {
     #[inline(always)]
     fn trim_file_ws(&self) -> Self {
-        let bytes = self.as_bytes();
-        let mut start = 0;
-        let mut end = bytes.len();
-        while start < end && bytes[start].is_file_ws() {
-            start += 1;
+        let mut bytes = *self;
+        while let [first, rest @ ..] = bytes {
+            // peel off front
+            if first.is_file_ws() {
+                bytes = rest;
+            } else {
+                break;
+            }
         }
-        while start < end && bytes[end - 1].is_file_ws() {
-            end -= 1;
+        while let [rest @ .., last] = bytes {
+            // peel off back
+            if last.is_file_ws() {
+                bytes = rest;
+            } else {
+                break;
+            }
         }
-        &self[start..end]
+        bytes
     }
+    
 }
