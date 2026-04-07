@@ -6,5 +6,5 @@ pub mod markup;
 pub mod object;
 pub mod tape;
 pub mod token;
-pub mod walker;
+pub mod visitor;
 pub mod convert;
