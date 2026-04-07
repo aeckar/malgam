@@ -1,4 +1,4 @@
 unstable_features = true
-blank_lines_between_items = 1
+blank_lines_upper_bound = 1
 reorder_imports = true
-group_imports = StdExternalCrate
+group_imports = "StdExternalCrate"

@@ -1,15 +1,17 @@
-use crate::ext::CharExt;
+use std::ops::{Index, Range};
+
 use memchr::{memchr, memchr2, memchr3, memmem};
-use std::ops::{Index,Range};
+
+use crate::ext::CharExt;
 
 /// Counts the number of tabs or the number of space characters divided by 4 (floored).
-/// 
+///
 /// Used to determine separation between table cells and indentation of list items.
 /// For optimal performance, the given string should only consist of whitespace characters.
-/// 
+///
 /// This is left private, as users should convert text to `Tape` first.
 fn count_indent(ws: &[u8]) -> u8 {
-let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &ch| match ch {
+    let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &ch| match ch {
         b'\t' => (t + 1, s),
         b' ' => (t, s + 1),
         _ => (t, s),
@@ -19,19 +21,19 @@ let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &ch| match ch {
 
 /// A lightweight, zero-copy cursor over a byte slice.
 ///
-/// Unlike a standard `Iterator`, `Tape` is designed specifically for 
+/// Unlike a standard `Iterator`, `Tape` is designed specifically for
 /// non-linear parsing:
-/// 
-/// * **Backtracking:** Supports moving the cursor backward (`dec`, `peek_back`) 
-///   and random access via slicing, which is essential for multi-character 
+///
+/// * **Backtracking:** Supports moving the cursor backward (`dec`, `peek_back`)
+///   and random access via slicing, which is essential for multi-character
 ///   delimiters and lookbehind checks.
-/// * **Zero-Copy Slicing:** Because it retains a reference to the `raw` buffer, 
-///   methods like `consume` can return efficient `&[u8]` sub-slices without 
+/// * **Zero-Copy Slicing:** Because it retains a reference to the `raw` buffer,
+///   methods like `consume` can return efficient `&[u8]` sub-slices without
 ///   allocating new memory.
-/// * **State Snapshots:** Since `Tape` is `Copy`, it can be cheaply duplicated 
-///   to "try" a parsing branch and then discarded if the branch fails, 
+/// * **State Snapshots:** Since `Tape` is `Copy`, it can be cheaply duplicated
+///   to "try" a parsing branch and then discarded if the branch fails,
 ///   restoring the original position instantly.
-/// 
+///
 /// `pos` is used to distinguish indices in a `Tape` from other data structures.
 /// It is not guaranteed to be within the acceptable range of indices at any given point,
 /// but member functions assume so.
@@ -280,8 +282,8 @@ impl<'a> Tape<'a> {
     ///
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
-    /// 
-    /// 
+    ///
+    ///
     /// Optimized for single byte search using SIMD.
     #[inline]
     pub fn seek_ch(&mut self, query: u8) -> bool {
@@ -296,8 +298,8 @@ impl<'a> Tape<'a> {
     ///
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
-    /// 
-    /// 
+    ///
+    ///
     /// Optimized for single byte search using SIMD.
     #[inline]
     pub fn seek_ch2(&mut self, ch0: u8, ch1: u8) -> bool {
@@ -312,8 +314,8 @@ impl<'a> Tape<'a> {
     ///
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
-    /// 
-    /// 
+    ///
+    ///
     /// Optimized for single byte search using SIMD.
     #[inline]
     pub fn seek_ch3(&mut self, ch0: u8, ch1: u8, ch2: u8) -> bool {
@@ -328,11 +330,11 @@ impl<'a> Tape<'a> {
     ///
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
-    /// 
+    ///
     /// Optimized using Two-Way search algorithm.
     #[inline]
     pub fn seek_at(&mut self, query: &'a [u8]) -> bool {
-if let Some(offset) = memmem::find(&self.raw[self.pos..], query) {
+        if let Some(offset) = memmem::find(&self.raw[self.pos..], query) {
             self.pos += offset;
             return true;
         }
@@ -352,7 +354,7 @@ if let Some(offset) = memmem::find(&self.raw[self.pos..], query) {
     ///
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
-    /// 
+    ///
     /// For multi-byte sequences, use `seek_at_in_pgraph`.
     #[inline]
     pub fn seek_ch_in_pgraph(&mut self, spacing: u8, query: u8) -> bool {
@@ -386,7 +388,7 @@ if let Some(offset) = memmem::find(&self.raw[self.pos..], query) {
     }
 
     /// Returns true if the current character belongs to a line prefix.
-    /// 
+    ///
     /// A character is part of a line prefix if there are no non-whitespace characters between
     /// the current character and the previous newline, the beginning of the input, or
     /// itself if it is a newline.

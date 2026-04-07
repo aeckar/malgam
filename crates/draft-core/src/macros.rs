@@ -21,7 +21,7 @@
 //     // \file[<opts>]
 //     // code, use ascii-math?
 //     // `finance` is extra-compiler flag, stash in .lmrc
-//     //      
+//     //
 //     fn file() {
 
 //     }
@@ -31,7 +31,7 @@
 //     // \eval['expr']
 //     // VERYYYYYYY COMPLEX
 //     // fn eval(state , body: &'a [u8]) {
-        
+
 //     // }
 
 //     // \table[<opts>]{}{}{..
@@ -53,7 +53,7 @@
 //     // block quote
 //     // '''
 
-//     // 
+//     //
 //     fn _use() {
 
 //     }

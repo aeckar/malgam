@@ -1,8 +1,8 @@
 //! CAUTION: AI-generated code
 use anyhow::{Context, Result};
 use clap::Parser;
-use draft_core::markup::{MarkupFile, DynConf};
-use std::{path::PathBuf};
+use draft_core::markup::{DynConf, MarkupFile};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "draft")]
@@ -54,13 +54,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn fmt() {
-    
-}
+fn fmt() {}
 
-fn serve() {
-
-}
+fn serve() {}
 
 // since using relatively small files, copy entire file to memory
 

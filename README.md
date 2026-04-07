@@ -13,3 +13,8 @@ flowchart
    core --> lsp[draft-lsp]
    lsp --> editor[draft-editor]
 ```
+
+need for `rustfmt.toml`:
+```bash
+rustup toolchain install nightly
+```

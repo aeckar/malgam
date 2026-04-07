@@ -1,7 +1,7 @@
 use std::str::Utf8Error;
 
 const IS_FILE_WS: u8 = 1 << 0; // 0000_0001
-const IS_KEY_PART: u8 = 1 << 1;    // 0000_0010
+const IS_KEY_PART: u8 = 1 << 1; // 0000_0010
 const FLAG_BITS: u8 = 2;
 
 /// Exactly 256 bytes—one for every possible u8 value.
@@ -10,13 +10,14 @@ const CHAR_TABLE: [u8; 256] = {
     table[b' ' as usize] = IS_FILE_WS | (1 << FLAG_BITS);
     table[b'\t' as usize] = IS_FILE_WS | (4 << FLAG_BITS);
     table[b'\r' as usize] = IS_FILE_WS | (1 << FLAG_BITS);
-    
+
     let bytes = concat!(
         "abcdefghijklmnopqrstuvwxyz",
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
         "0123456789",
         "-_.$"
-    ).as_bytes();
+    )
+    .as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         table[bytes[i] as usize] = IS_KEY_PART;
@@ -32,7 +33,7 @@ pub trait CharExt {
     /// This is used to determine whether certain characters
     /// (like `*` for bold/italic) should be treated as text or as formatting markers,
     /// based on their surrounding context.
-    /// 
+    ///
     /// Recognition of these whitespace characters extends to object notation also.
     #[must_use]
     fn is_file_ws(&self) -> bool;
@@ -46,7 +47,7 @@ pub trait CharExt {
 
     /// Returns true if this character may be part of an unescaped (without `""`) key
     /// in object notation.
-    /// 
+    ///
     /// Letters, digits, dashes, underscores, dots, and dollar signs are accepted.
     fn is_file_key_part(&self) -> bool;
 }
@@ -102,5 +103,5 @@ impl SliceExt for &[u8] {
 
     fn to_utf8(&self) -> Result<String, Utf8Error> {
         String::from_utf8(self.to_vec()).map_err(|e| e.utf8_error())
-    }   
+    }
 }
