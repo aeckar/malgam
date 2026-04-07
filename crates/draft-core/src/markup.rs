@@ -1,7 +1,3 @@
-//! Don't check for UTF-8 correctness; leave that to the user.
-
-use std::collections::HashSet;
-
 use simdutf8::basic::{self, Utf8Error};
 
 use crate::ast::Ast;
@@ -25,13 +21,14 @@ pub struct DynConf {
 /// These options cannot be changed from within a markup file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticConf {
-    /// If true, the compiler does not recognize inline
-    /// math formatting to make writing finances easier. 
+    /// If true, does not recognize inline math formatting to make writing finances easier. 
     finance_mode: bool,
 
-    /// If true, the compiler does not perform a first pass to
-    /// ensure the input is valid UTF-8.
+    /// If true, does not perform a first pass to ensure the input is valid UTF-8.
     trusted_mode: bool,
+
+    /// If true, recognizes links without having to use link syntax.
+    infer_links: bool,
 }
 
 #[derive(Error, Debug)]
@@ -52,7 +49,7 @@ struct FirstPass<'a> {
     pgraph_spacing: u8,
 
     /// True if currently within alt text (validated '[').
-    in_alt_txt: bool,
+    in_alt_text: bool,
 
     /// A stack of positions of the first character of openers that
     /// have been resolved but not yet paired with a closer.
@@ -66,14 +63,7 @@ struct FirstPass<'a> {
     /// Block quotes can be nested, but the characters used must match.
     /// 
     /// The first element of each pair is whether double quotes were used.
-    /// The second is the label.
-    open_quotes: Vec<(bool, &'a [u8], usize)>,
-
-    /// The positions of all format marker pairs currently resolved.
-    ///
-    /// The key is the position of the first character in the opener
-    /// and the value is one past the position of the last character in the closer.
-    fmt_pairs: Vec<(usize, usize)>,
+    open_quotes: Vec<(bool, usize)>,
 }
 
 impl<'a> FirstPass<'a> {
@@ -88,7 +78,7 @@ impl<'a> FirstPass<'a> {
     /// and has the given length.
     //do not return tape for convenience, as `pos` might need to be adjusted before exiting handler.
     #[inline]
-    fn emit_cur(&mut self, tape: Tape, ty: TokenType<'a>, len: usize) {
+    fn emit_inplace(&mut self, tape: Tape, ty: TokenType<'a>, len: usize) {
         self.tokens.push(Token::new(ty, tape.pos, tape.pos + len));
     }
 
@@ -127,7 +117,6 @@ impl<'a> FirstPass<'a> {
             // close
             let (open_mask, open_pos) = self.open_fmts.pop().unwrap();
             let open_len = InlineFormat::len(open_mask);
-            self.fmt_pairs.push((open_pos, start + len));
             // unsorted tokens don't matter since tokens are sorted after Pass 1
             if (mask & open_mask).ilog2() == 1 {
                 // basic pair
@@ -135,24 +124,24 @@ impl<'a> FirstPass<'a> {
                     ty: InlineFormat::from_flag(open_mask),
                 };
                 self.emit(ty, open_pos, open_pos + len);
-                self.emit_cur(tape, ty, open_len);
+                self.emit_inplace(tape, ty, open_len);
                 tape.pos += open_len;
                 // if mask == BOLD_ITALIC_MASK: stop at next format marker appended to this cluster
             } else if mask == BOLD_ITALIC_MASK && open_mask == BOLD_ITALIC_MASK {
                 self.emit(BOLD_TY, open_pos, open_pos + 2);
                 self.emit(ITALIC_TY, open_pos + 2, open_pos + 3);
-                self.emit_cur(tape, ITALIC_TY, 1);
+                self.emit_inplace(tape, ITALIC_TY, 1);
                 self.emit(BOLD_TY, start + 1, start + 3);
             } else {
                 // open_mask == BOLD_ITALIC_MASK
                 if mask == InlineFormat::BOLD_FLAG {
                     self.open_fmts.push((InlineFormat::ITALIC_FLAG, open_pos));
                     self.emit(BOLD_TY, open_pos + 1, open_pos + 3);
-                    self.emit_cur(tape, BOLD_TY, 2);
+                    self.emit_inplace(tape, BOLD_TY, 2);
                 } else {
                     self.open_fmts.push((InlineFormat::BOLD_FLAG, open_pos));
                     self.emit(ITALIC_TY, open_pos + 2, open_pos + 3);
-                    self.emit_cur(tape, ITALIC_TY, 1);
+                    self.emit_inplace(tape, ITALIC_TY, 1);
                 }
             }
             return Some(tape);
@@ -160,39 +149,39 @@ impl<'a> FirstPass<'a> {
         None
     }
 
-    /// Resolves whether a `'` or `"` character belongs to an admonition, a block quote
+    /// Resolves whether a `'` or `"` character belongs to an admonition, a quote
     /// (shorthand or long-form) or plain text.
+    /// 
+    /// Quote blocks of a different sigil can be nested once.
+    /// Unlike fenced code blocks, the quote block handler does not consume
+    /// inner content indiscrimantly. Instead, it behaves like a link,
+    /// with inner markup being seperate from the token itself.
     #[must_use]
-    fn handle_quote(&mut self, mut tape: Tape<'a>, ty: u8) -> Option<Tape<'a>> {
-        // Would reuse logic for fenced code block, but that consumes inner content indiscrimantly
-        // Consequence of syntax is that unlabeled quote blocks cannot be nested
+    fn handle_quote(&mut self, mut tape: Tape<'a>, quote: u8) -> Option<Tape<'a>> {
+        if !tape.is_cur_prefix() {
+                return None;
+        }
         let start = tape.pos;
-        let delim = &[ty; 3];
+        if tape.is_at(&[quote; 2]) {    // single-line shorthand
+            self.emit_inplace(tape, TokenType::LineQuoteMarker, 2);
+            self.pgraph_spacing = 1;            
+            tape.pos += 2;  // skip over `""`/`''`
+            return Some(tape);
+        } 
+        let delim = &[quote; 3];
         if tape.is_at(delim) {
-            if !tape.is_cur_prefix() {
-                return None;
-            } //todo finish
-            tape.pos += 3; // skip over `"""` 
-            let label = tape.consume(|ch, _| ch != b'\n').trim_file_ws();
-            if label.is_empty() {
-                if let Some(&(double,label,pos, )) = self.open_quotes.last() && double == (ty == b'"') {
-                    self.emit(TokenType::BlockQuoteOpen { label }, pos, pos + 3 + label.len());
-                    self.emit(
-                        TokenType::BlockQuoteClose,
-                        start,
-                        start + 3,
-                    );
-                    return Some(tape);
-                }
-                return None;
+            tape.pos += 3; // skip over `"""`/`'''`
+            if let Some(&(double,open_pos, )) = self.open_quotes.last() && double == (quote == b'"') {
+                self.emit(TokenType::BlockQuoteOpen, open_pos, open_pos + 3);
+                self.emit_inplace(
+                    tape,
+                    TokenType::BlockQuoteClose,
+                    3,
+                );
+                self.open_quotes.pop();
+                return Some(tape);
             }
-            self.emit(
-                TokenType::BlockQuoteOpen {
-                    label: label.trim_file_ws(),
-                },
-                start,
-                tape.pos,
-            );
+            self.open_quotes.push((quote == b'"', start));
             return Some(tape);
         }
         None
@@ -201,7 +190,7 @@ impl<'a> FirstPass<'a> {
     /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
     #[must_use]
     fn handle_obrac(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
-        if self.in_alt_txt {
+        if self.in_alt_text {
             return None;
         }
         tape.poll_in_pgraph(self.pgraph_spacing, |ch, pos| {
@@ -211,16 +200,16 @@ impl<'a> FirstPass<'a> {
         if tape.peek_back() == Some(b'!') {
             self.emit(TokenType::EmbedMarker, tape.pos - 1, tape.pos + 1);
         } else {
-            self.emit_cur(tape, TokenType::LinkMarker, 1);
+            self.emit_inplace(tape, TokenType::LinkMarker, 1);
         }
-        self.in_alt_txt = true;
+        self.in_alt_text = true;
         Some(tape)
     }
 
     /// Resolves whether a ']' character belongs to a link body, an embed body, or plain text.
     #[must_use]
     fn handle_cbrac(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
-        if !self.in_alt_txt {
+        if !self.in_alt_text {
             return None;
         }
         let spacing = self.pgraph_spacing;
@@ -254,7 +243,7 @@ impl<'a> FirstPass<'a> {
     #[must_use]
     fn handle_dot(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
         if tape.is_cur_prefix() {
-            self.emit_cur(
+            self.emit_inplace(
                 tape,
                 TokenType::NumberedItem {
                     depth: tape.count_indent(),
@@ -291,7 +280,7 @@ impl<'a> FirstPass<'a> {
             if !tape.is_cur_prefix() {
                 return None;
             }
-            self.emit_cur(
+            self.emit_inplace(
                 tape, 
                 TokenType::Checkbox {
                     depth: tape.count_indent(),
@@ -310,12 +299,12 @@ impl<'a> FirstPass<'a> {
             tape.pos += 2;
             let tail = tape.consume(|ch, _| ch != b'\n');
             if tail.iter().all(|ch| ch.is_file_ws()) {
-                self.emit_cur(tape, TokenType::HorizontalRule, 3);
+                self.emit_inplace(tape, TokenType::HorizontalRule, 3);
                 tape.dec();
                 return Some(tape); // stop at last '-'
             }
         }
-        self.emit_cur(
+        self.emit_inplace(
             tape,
             TokenType::ListItem {
                 depth: tape.count_indent(),
@@ -523,8 +512,6 @@ impl<'a> FirstPass<'a> {
 }
 
 /// Draft markup syntax.
-/// 
-/// todo explain compilation process
 #[derive(Debug)]
 pub struct MarkupFile<'a> {
     /// The input text.
@@ -544,9 +531,9 @@ impl<'a> Compile for MarkupFile<'a> {
         if !self.static_conf.trusted_mode {
             self.validate_utf8()?;
         }
-        let tokens = self.parse_virtual_tokens();
-        let tokens = self.prune_bad_tokens(tokens);
+        let tokens = self.parse_special_tokens();
         let tokens = self.parse_text_tokens(tokens);
+        let tokens = self.transform_bad_tokens(tokens);
         let ast = self.assemble_ast(tokens);
         Ok(ast)
     }
@@ -561,9 +548,6 @@ impl<'a> MarkupFile<'a> {
         }
     }
 
-    /// **Pass 1: VALIDATE UTF-8**
-    /// 
-    /// Returns true if the input is valid UTF-8, or false otherwise.
     #[must_use]
     fn validate_utf8(&self) -> Result<(),MarkupError> {
         basic::from_utf8(self.input)?;
@@ -571,14 +555,13 @@ impl<'a> MarkupFile<'a> {
     } 
 
     #[must_use]
-    fn parse_virtual_tokens(&self) -> Vec<Token<'a>> {
+    fn parse_special_tokens(&self) -> Vec<Token<'a>> {
         let mut pass = FirstPass {
-            in_alt_txt: false,
+            in_alt_text: false,
             pgraph_spacing: 2,
             tokens: vec![],
-            open_quotes: vec![],
+            open_quotes: Vec::with_capacity(2),
             open_fmts: vec![],
-            fmt_pairs: vec![],
         };
         let mut tape = Tape::new(self.input);
 
@@ -591,7 +574,7 @@ impl<'a> MarkupFile<'a> {
                 // ordered by expected frequency
                 b'\n' => {
                     pass.pgraph_spacing = 2;
-                    pass.emit_cur(tape, TokenType::Newline, 1);
+                    pass.emit_inplace(tape, TokenType::Newline, 1);
                     // Returning a positive result even though the cursor hasn't moved
                     // results in a negligible performance hit
                     // from copying the tape data structure.
@@ -625,88 +608,53 @@ impl<'a> MarkupFile<'a> {
         pass.tokens
             .push(Token::new(TokenType::Eof, tape.raw.len(), tape.raw.len()));
         pass.tokens
-    }
-
-    /// **Pass 3: PRUNE VIRTUAL TOKENS**
-    /// 
-    /// Prunes logical virtual tokens after pass one so they can be parsed as plain text
-    ///
-    /// The following are pruned:
-    /// - links/embeds without a body
-    /// - headings without text
-    /// - list items without text
-    /// - todo empty quotes
-    /// - todo empty math blocks
-    /// - todo empty code blocks
-    ///
-    /// Since it would be incredibly difficult to determine whether a macro actually
-    /// emits visible text or not, let's just assume they all do when pruning virtual tokens.
-    /// 
-    /// The remaining tokens sorted as they appear in the input.
-    #[must_use]
-    fn prune_bad_tokens(&self, mut tokens: Vec<Token<'a>>) -> Vec<Token<'a>> {
-        if tokens.is_empty() { return vec![]; }
-        let mut to_prune = HashSet::new();
-        let mut last_marker_idx: Option<usize> = None;
-        for i in 0..tokens.len() {  // identify everything to kill
-            match tokens[i].ty {
-                TokenType::LinkMarker | TokenType::EmbedMarker => {
-                    last_marker_idx = Some(i);
-                    // assume it's pruned until we find a body
-                    to_prune.insert(i); 
-                }
-                TokenType::LinkBody { .. } | TokenType::LinkAliasBody { .. } => {
-                    if let Some(m_idx) = last_marker_idx {
-                        to_prune.remove(&m_idx); // Found a body! Keep the marker.
-                    }
-                }
-                TokenType::Heading { .. } | TokenType::ListItem { .. } | TokenType::NumberedItem { .. } => {
-                    // peek forward safely because we aren't in retain yet
-                    let is_empty = tokens.get(i + 1)
-                        .map_or(true, |next| next.ty == TokenType::Newline);
-                    if is_empty {
-                        to_prune.insert(i);
-                    }
-                }
-                TokenType::Newline => last_marker_idx = None,
-                _ => {}
-            }
-        }
-        let mut cur_idx = 0;
-        tokens.retain(|_| {
-            let prune = to_prune.contains(&cur_idx);
-            cur_idx += 1;
-            !prune
-        });
-        tokens
             .sort_unstable_by(|t1, t2| t1.start.cmp(&t2.start));
-        tokens
+        pass.tokens
     }
 
     #[must_use]
-    fn parse_text_tokens(&self, mut tokens: Vec<Token<'a>>) -> Vec<Token<'a>> {
-        // todo here, we have all the meaningful virtual tokens found
-        // I don't know what to do with the pair heap yet.
-        // However, just iterate over it. Match the position to the next one in the virtual tokens.
-        let mut tape = Tape::new(self.input);
+    fn parse_text_tokens(&self, tokens: Vec<Token<'a>>) -> Vec<Token<'a>> {
         let mut read = 0;
-        let mut txt_start = 0;
+        let mut text_start = 0;
         let mut pos = 0;
+        let mut result = vec![];
         while read < tokens.len() {
             // collect plaintext tokens
             let next = &tokens[read];
             if next.start == pos {
-                if pos - txt_start != 0 {
-                    tokens.push(Token::new(TokenType::Plaintext, txt_start, pos));
+                if pos - text_start != 0 {
+                    result.push(Token::new(TokenType::Plaintext, text_start, pos));
                 }
+                result.push(next.clone());
                 read += 1;
                 pos += next.len();
-                txt_start = pos;
+                text_start = pos;
             } else {
                 pos += 1;
             }
         }
-        tokens
+        result
+    }
+
+    /// Transforms malformed Draft syntax into plaintext, including:
+    /// - Links/Embeds without a body
+    /// - Empty headings
+    /// - Empty list items
+    /// - Empty quotes
+    /// - Empty math blocks
+    /// - Empty code blocks
+    /// 
+    /// Since macro expansion is handled outside of the compiler, we assume that all macro
+    /// invocations produce text at this stage.
+    #[must_use]
+    fn transform_bad_tokens(&self, tokens: Vec<Token<'a>>) -> Vec<Token<'a>> {
+        use TokenType::*;
+        let mut result = Vec::with_capacity(tokens.capacity());
+        for token in tokens {
+            match token {
+                Heading { .. } => 
+            }
+        }
     }
 
     #[must_use]

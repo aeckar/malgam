@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::num::ParseFloatError;
 use std::str::Utf8Error;
 
 use thiserror::Error;

@@ -84,34 +84,35 @@ impl CheckboxType {
 /// in range they represent (see comments).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenType<'a> {
-    Plaintext,
+    Plaintext,// 
     Newline,
     HorizontalRule, // doubles as row divider, if enabled
-    LinkMarker,
-    EmbedMarker,
-    BlockQuoteOpen { label: &'a [u8] }, // blank if not admonition
+    LinkMarker,//
+    EmbedMarker,//
+    LineQuoteMarker,
+    BlockQuoteOpen,
     BlockQuoteClose,
-    Literal { ch: u8 }, // preceded by `\`
-    LinkBody { href: &'a [u8] },       // ]( )
-    LinkAliasBody { alias: &'a [u8] }, // ][ ]
-    MacroHandle { name: &'a [u8] },    // \
+    Literal { ch: u8 }, // preceded by `\`          //
+    LinkBody { href: &'a [u8] },       // ]( )      //
+    LinkAliasBody { alias: &'a [u8] }, // ][ ]      //
+    MacroHandle { name: &'a [u8] },    // \      //
     MacroArgs { body: &'a [u8] },      // [ ]
     MacroBody { body: &'a [u8] },      // { }
     Heading { depth: u8 },
-    InlineCode { body: &'a [u8] },    // ` `
-    InlineRawCode { body: &'a [u8] }, // `` ``
-    InlineMath { body: &'a [u8] },    // $ $
+    InlineCode { body: &'a [u8] },    // ` `      //
+    InlineRawCode { body: &'a [u8] }, // `` ``      //
+    InlineMath { body: &'a [u8] },    // $ $      //
     CodeBlock { body: &'a [u8], lang: &'a [u8] },
-    Admonition { label: &'a [u8] },
     MathBlock { body: &'a [u8] },
-    InlineFormat { ty: InlineFormat },
+    InlineFormat { ty: InlineFormat },      //
     Checkbox { depth: u8, ty: CheckboxType },
     ListItem { depth: u8 },
     NumberedItem { depth: u8, ty: Numbering },
-    AliasMarker { alias: &'a [u8] },
-    LinkAlias { href: &'a [u8] },
-    SourceAlias { body: &'a [u8] },
-    Eof,
+
+    //todo works for citations via interpolation (`{paul}` => `[paul]=cite.{}`)
+    AssignmentMarker { alias: &'a [u8] },    // [<key>]=<value>
+
+    Eof,    // necessary to find bound for trailing plaintext
 }
 
 impl TokenType<'_> {
