@@ -394,6 +394,7 @@ name = "draft-core"
 version = "0.1.0"
 dependencies = [
  "boa_engine",
+ "bumpalo",
  "csv",
  "enum-ordinalize",
  "lexical-core",

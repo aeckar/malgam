@@ -79,7 +79,7 @@ DON supports six primary data types, mapped to the `ObjectValue` enum:
 
 ### **Object Keys**
 
-- **Unquoted Keys:** Keys that satisfy `is_file_key_part()` (alphanumeric, underscores, and dashes) do not require quotes.
+- **Unquoted Keys:** Keys that satisfy `is_file_key_part()` (alphanumeric, and dashes) do not require quotes.
 - **Quoted Keys:** If a key contains spaces or special characters, it must be quoted. Special characters are any .
 - **Assignment:** Keys are mapped to values using the equals sign (`=`).
 

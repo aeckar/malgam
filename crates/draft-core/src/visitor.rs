@@ -27,8 +27,8 @@ pub trait AstVisitor<'a> {
 
     fn visit_ast_node(&mut self, node: &AstNode<'a>) -> Self::Output;
     fn visit_block_node(&mut self, node: &BlockNode<'a>) -> Self::Output;
-    fn visit_list_node(&mut self,node:&ListNode<'a>) -> Self::Output;
-    fn visit_inline_node(&mut self,node:&InlineNode<'a>) -> Self::Output;
+    fn visit_list_node(&mut self, node: &ListNode<'a>) -> Self::Output;
+    fn visit_inline_node(&mut self, node: &InlineNode<'a>) -> Self::Output;
 }
 
 pub struct AstToHtml {}
@@ -37,14 +37,14 @@ pub struct AstToHtml {}
 impl<'a> AstVisitor<'a> for AstToHtml {
     type Output = Vec<String>;
 
-    fn visit_ast_node(&mut self,node:&AstNode<'a>) -> Self::Output {
+    fn visit_ast_node(&mut self, node: &AstNode<'a>) -> Self::Output {
         match node {
             AstNode::Block(block) => block,
             AstNode::Inline(inline) => inline,
         }
     }
 
-    fn visit_block_node(&mut self,node:&BlockNode<'a>) -> Self::Output {
+    fn visit_block_node(&mut self, node: &BlockNode<'a>) -> Self::Output {
         fn visit_block_node(&mut self, node: &BlockNode<'a>) -> Self::Output {
             match node {
                 BlockNode::Paragraph(content) => todo!(),
@@ -58,14 +58,14 @@ impl<'a> AstVisitor<'a> for AstToHtml {
         }
     }
 
-    fn visit_list_node(&mut self,node:&ListNode<'a>) -> Self::Output {
+    fn visit_list_node(&mut self, node: &ListNode<'a>) -> Self::Output {
         match node {
             ListNode::Unordered(items) => todo!(),
             ListNode::Ordered(start, items) => todo!(),
         }
     }
 
-    fn visit_inline_node(&mut self,node:&InlineNode<'a>) -> Self::Output {
+    fn visit_inline_node(&mut self, node: &InlineNode<'a>) -> Self::Output {
         match node {
             InlineNode::Text(text) => todo!(),
             InlineNode::SoftBreak => todo!(),
@@ -82,3 +82,51 @@ impl<'a> AstVisitor<'a> for AstToHtml {
 }
 
 pub struct AstToMarkdown {}
+
+impl<'a> AstVisitor<'a> for AstToMarkdown {
+    type Output = Vec<String>;
+
+    fn visit_ast_node(&mut self, node: &AstNode<'a>) -> Self::Output {
+        match node {
+            AstNode::Block(block) => block,
+            AstNode::Inline(inline) => inline,
+        }
+    }
+
+    fn visit_block_node(&mut self, node: &BlockNode<'a>) -> Self::Output {
+        fn visit_block_node(&mut self, node: &BlockNode<'a>) -> Self::Output {
+            match node {
+                BlockNode::Paragraph(content) => todo!(),
+                BlockNode::Heading(level, content) => todo!(),
+                BlockNode::BlockQuote(children) => todo!(),
+                BlockNode::List(list) => self.visit_list_node(list),
+                BlockNode::CodeBlock(info, code) => todo!(),
+                BlockNode::ThematicBreak => todo!(),
+                BlockNode::Html(html) => todo!(),
+            }
+        }
+    }
+
+    fn visit_list_node(&mut self, node: &ListNode<'a>) -> Self::Output {
+        match node {
+            ListNode::Unordered(items) => todo!(),
+            ListNode::Ordered(start, items) => todo!(),
+        }
+    }
+
+    fn visit_inline_node(&mut self, node: &InlineNode<'a>) -> Self::Output {
+        match node {
+            InlineNode::Text(text) => todo!(),
+            InlineNode::SoftBreak => todo!(),
+            InlineNode::HardBreak => todo!(),
+            InlineNode::Code(code) => todo!(),
+            InlineNode::Html(html) => todo!(),
+            InlineNode::Emphasis(children) => todo!(),
+            InlineNode::Strong(children) => todo!(),
+            InlineNode::Link(url, title, children) => todo!(),
+            InlineNode::Image(url, title, children) => todo!(),
+            _ => todo!(),
+        }
+    }
+}
+z

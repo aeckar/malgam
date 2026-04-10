@@ -66,6 +66,7 @@ struct FirstPass<'a> {
     open_quotes: Vec<(bool, usize)>,
 }
 
+/// All `handle_X` functions assume cursor is at a valid character.
 impl<'a> FirstPass<'a> {
     /// Pushes the token nside the input between the start and end indices.
     /// The end index is exclusive.   
@@ -184,10 +185,12 @@ impl<'a> FirstPass<'a> {
 
     /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
     #[must_use]
-    fn handle_obrac(&mut self, tape: Tape<'a>) -> Option<Tape<'a>> {
+    fn handle_obrac(&mut self, mut tape: Tape<'a>) -> Option<Tape<'a>> {
         if self.in_alt_text {
             return None;
         }
+        tape.adv(); // skip '['
+        
         tape.poll_in_pgraph(self.pgraph_spacing, |ch, pos| {
             let next = tape[pos + 1];
             ch == b']' && (next == b'(' || next == b'[')

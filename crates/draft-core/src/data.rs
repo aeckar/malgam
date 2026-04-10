@@ -25,16 +25,19 @@ use crate::tape::Tape;
 ///
 /// Keys can be
 #[derive(Debug, Clone, PartialEq)]
-pub enum ObjectValue {
+pub enum DataValue {
     Null,
     Bool(bool),
     Number(f64),
     String(String),
-    List(Vec<ObjectValue>),
-    Object(HashMap<String, ObjectValue>),
+    List(Vec<DataValue>),
+    Object {
+        tag: String,
+        map: HashMap<String, DataValue>,
+    },
 }
 
-impl Display for ObjectValue {
+impl Display for DataValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Null => write!(f, "null"),
@@ -49,8 +52,8 @@ impl Display for ObjectValue {
                 }
                 write!(f, "}}")
             }
-            Self::Object(map) => {
-                write!(f, ".{{")?;
+            Self::Object { tag, map } => {
+                write!(f, "{tag}.{{")?;
                 for (key, val) in map {
                     write!(f, "{key}:{val}")?;
                     write!(f, ",")?;
@@ -62,7 +65,7 @@ impl Display for ObjectValue {
     }
 }
 
-impl ObjectValue {
+impl DataValue {
     pub fn to_pstring(&self) -> String {
         let mut buf = String::new();
         // Start with 0 indentation
@@ -91,11 +94,11 @@ impl ObjectValue {
                 }
                 write!(f, "{space}}}")
             }
-            Self::Object(map) => {
+            Self::Object { tag, map } => {
                 if map.is_empty() {
-                    return write!(f, ".{{}}");
+                    return write!(f, "{tag}.{{}}");
                 }
-                writeln!(f, ".{{")?;
+                writeln!(f, "{tag}.{{")?;
                 for (key, val) in map {
                     write!(f, "{next_space}\"{key}\": ")?;
                     val.pfmt(f, indent + 1)?;
@@ -109,7 +112,7 @@ impl ObjectValue {
 
 /// Describes and locates a specific error in object notation syntax.
 #[derive(Error, Debug, Clone)]
-pub enum ObjectError {
+pub enum DataError {
     #[error("Expected a value at index {pos}")]
     MissingValue { pos: usize },
 
@@ -131,30 +134,31 @@ pub enum ObjectError {
 }
 
 /// Draft Object Notation (DON) syntax.
-pub struct ObjectFile<'a> {
+pub struct DataFile<'a> {
     /// The input text.
     pub input: &'a [u8],
 }
 
-impl<'a> Compile for ObjectFile<'a> {
-    type Output = Result<ObjectValue, ObjectError>;
+impl<'a> Compile for DataFile<'a> {
+    type Output = Result<DataValue, DataError>;
 
     fn compile(self) -> Self::Output {
         self.parse_any(&mut Tape::new(self.input))
     }
 }
 
-impl<'a> ObjectFile<'a> {
+/// All `parse_X` functions assume cursor is at a valid character.
+impl<'a> DataFile<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             input: input.as_bytes(),
         }
     }
 
-    fn parse_any(&self, tape: &mut Tape<'a>) -> Result<ObjectValue, ObjectError> {
+    fn parse_any(&self, tape: &mut Tape<'a>) -> Result<DataValue, DataError> {
         use lexical_core::format;
         use lexical_core::parse_float_options as options;
-        const NUM_FMT: u128 = format::STANDARD | format::LEADING_DIGIT_SEPARATOR;
+        const NUM_FMT: u128 = format::STANDARD;
         const NUM_OPTIONS: options::Options = options::Options::builder()
             .decimal_point(b'.')
             .inf_string(Some(b"inf"))
@@ -168,44 +172,48 @@ impl<'a> ObjectFile<'a> {
 
         // trivial cases
         if tape.cur().is_none() {
-            return Err(ObjectError::MissingValue { pos: start });
+            return Err(DataError::MissingValue { pos: start });
         }
         if tape.is_at(b"true") {
-            return Ok(ObjectValue::Bool(true));
+            return Ok(DataValue::Bool(true));
         }
         if tape.is_at(b"false") {
-            return Ok(ObjectValue::Bool(false));
+            return Ok(DataValue::Bool(false));
         }
         if tape.is_at(b"null") {
-            return Ok(ObjectValue::Null);
+            return Ok(DataValue::Null);
         }
 
         let ch = tape.cur().unwrap();
         match ch {
-            b'.' => self.parse_obj(tape),
+            b'-' | b'$' | b'a'..=b'z' | b'A'..=b'Z' => {
+                let tag = self.parse_tag(tape)?;
+                self.parse_obj(tape, tag)
+            }
+            b'.' => self.parse_obj(tape, "".to_string()),
             b'{' => self.parse_list(tape),
             b'"' => {
                 if !tape.seek_at_in_pgraph(1, b"\"") {
-                    Err(ObjectError::MissingCloser {
+                    Err(DataError::MissingCloser {
                         open: b'"',
                         close: b'"',
                         open_pos: start,
                     })
                 } else {
-                    Ok(ObjectValue::String(
+                    Ok(DataValue::String(
                         tape.slice(start + 1..tape.pos).to_utf8()?,
                     ))
                 }
             }
             b'\'' => {
                 if !tape.seek_at_in_pgraph(1, b"'") {
-                    Err(ObjectError::MissingCloser {
+                    Err(DataError::MissingCloser {
                         open: b'\'',
                         close: b'\'',
                         open_pos: start,
                     })
                 } else {
-                    Ok(ObjectValue::String(
+                    Ok(DataValue::String(
                         tape.slice(start + 1..tape.pos).to_utf8()?,
                     ))
                 }
@@ -215,21 +223,32 @@ impl<'a> ObjectFile<'a> {
                 &NUM_OPTIONS,
             )
             .inspect(|&(_, len)| tape.pos += len)
-            .map(|(n, _)| ObjectValue::Number(n))
-            .map_err(|e| ObjectError::InvalidNumber(e)),
+            .map(|(n, _)| DataValue::Number(n))
+            .map_err(|e| DataError::InvalidNumber(e)),
             b';' => {
                 // same comment style as markup
-                Err(ObjectError::MissingValue { pos: start })
+                Err(DataError::MissingValue { pos: start })
             }
-            _ => Err(ObjectError::IllegalCharacter { ch, pos: start }),
+            _ => Err(DataError::IllegalCharacter { ch, pos: start }),
         }
     }
 
-    fn parse_obj(&self, tape: &mut Tape<'a>) -> Result<ObjectValue, ObjectError> {
+    fn parse_tag(&self, tape: &mut Tape<'a>) -> Result<String, DataError> {
+        let tag = tape.consume(|ch, _| ch.is_file_key_part());
+        let tag = &tag[..tag.len() - 1]; // safe; first character already seen
+        if tape.cur() != Some(b'{') {
+            let pos = tape.pos;
+            return Err(DataError::IllegalCharacter { ch: tape[pos], pos });
+        }
+        tape.dec(); // put back '.'
+        Ok(str::from_utf8(tag)?.to_string())
+    }
+
+    fn parse_obj(&self, tape: &mut Tape<'a>, tag: String) -> Result<DataValue, DataError> {
         tape.adv(); // skip '.'
         if tape.cur() != Some(b'{') {
             // should not be checked beforehand
-            return Err(ObjectError::IllegalCharacter {
+            return Err(DataError::IllegalCharacter {
                 ch: tape.cur().unwrap_or(0),
                 pos: tape.pos,
             });
@@ -239,13 +258,13 @@ impl<'a> ObjectFile<'a> {
         tape.consume(|ch, _| ch.is_file_ws());
         let mut map = HashMap::new();
         loop {
-            // allows leading, trailing, and mixed/chained delimiters
+            // Allow leading, trailing, and mixed/chained delimiters
             tape.consume(|ch, _| ch.is_file_ws() || ch == b'\n' || ch == b',');
 
-            // get current character
+            // Get current character
             let ch = tape.cur();
             if ch.is_none() {
-                return Err(ObjectError::MissingCloser {
+                return Err(DataError::MissingCloser {
                     open: b'{',
                     close: b'}',
                     open_pos,
@@ -253,12 +272,13 @@ impl<'a> ObjectFile<'a> {
             }
             let ch = ch.unwrap();
 
+            // Check if end is reached
             if ch == b'}' {
                 tape.adv();
                 break;
             }
 
-            // get key
+            // Get key
             let key: &'a [u8];
             let raw = tape.raw;
             if ch == b'"' {
@@ -273,17 +293,21 @@ impl<'a> ObjectFile<'a> {
                     (ch != b'\'' && ch != b'\n') || ch == b'\'' && raw.get(pos - 1) == Some(&b'\\')
                 });
                 tape.adv(); // skip `'`
-            } else {
+            } else if matches!(ch, b'-' | b'$' | b'a'..=b'z' | b'A'..=b'Z') {
                 key = tape.consume(|ch, _| ch.is_file_key_part());
+            } else {
+                let pos = tape.pos;
+                return Err(DataError::IllegalCharacter { ch:tape[pos], pos })
             }
             if key.is_empty() {
-                return Err(ObjectError::MissingValue { pos: tape.pos });
+                return Err(DataError::MissingValue { pos: tape.pos });
             }
             let key = str::from_utf8(key)?.to_string();
 
+            // Parse assignment
             tape.consume(|ch, _| ch.is_file_ws());
             if tape.cur() != Some(b'=') {
-                return Err(ObjectError::IllegalCharacter {
+                return Err(DataError::IllegalCharacter {
                     ch: tape.cur().unwrap_or(0),
                     pos: tape.pos,
                 });
@@ -291,12 +315,13 @@ impl<'a> ObjectFile<'a> {
             tape.adv(); // skip '='
             tape.consume(|ch, _| ch.is_file_ws());
             let val = self.parse_any(tape)?;
+
             map.insert(key, val);
         }
-        Ok(ObjectValue::Object(map))
+        Ok(DataValue::Object { tag, map })
     }
 
-    fn parse_list(&self, tape: &mut Tape<'a>) -> Result<ObjectValue, ObjectError> {
+    fn parse_list(&self, tape: &mut Tape<'a>) -> Result<DataValue, DataError> {
         let mut items = vec![];
         loop {
             tape.consume(|ch, _| ch.is_file_ws() || ch == b'\n');
@@ -305,7 +330,7 @@ impl<'a> ObjectFile<'a> {
                 break;
             }
             if tape.cur().is_none() {
-                return Err(ObjectError::MissingCloser {
+                return Err(DataError::MissingCloser {
                     open: b'{',
                     close: b'}',
                     open_pos: tape.pos,
@@ -317,12 +342,12 @@ impl<'a> ObjectFile<'a> {
             if tape.cur() == Some(b',') {
                 tape.adv();
             } else if tape.cur() != Some(b'}') {
-                return Err(ObjectError::IllegalCharacter {
+                return Err(DataError::IllegalCharacter {
                     ch: tape.cur().unwrap_or(0),
                     pos: tape.pos,
                 });
             }
         }
-        Ok(ObjectValue::List(items))
+        Ok(DataValue::List(items))
     }
 }

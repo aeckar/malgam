@@ -48,7 +48,9 @@ pub trait CharExt {
     /// Returns true if this character may be part of an unescaped (without `""`) key
     /// in object notation.
     ///
-    /// Letters, digits, dashes, underscores, dots, and dollar signs are accepted.
+    /// Letters, digits, dashes, dots, and dollar signs are accepted.
+    /// Kebab case is used, with dots used to denote scope and dollar signs
+    /// used to denote special keys. Keys must start with a letter, dollar sign, or dash.
     fn is_file_key_part(&self) -> bool;
 }
 
