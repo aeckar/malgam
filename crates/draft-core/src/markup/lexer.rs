@@ -1,11 +1,9 @@
 use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
-use crate::ast::AstNode;
-use crate::compile::Compile;
-use crate::ext::{CharExt, SliceExt};
+use crate::prelude::*;
 use crate::tape::Tape;
-use crate::token::{CheckboxType, InlineFormat, Numbering, Token, TokenSpec};
+use crate::markup::vocab::{CheckboxType, InlineFormat, Numbering, Token, TokenSpec};
 
 /// Dynamic configuration options set by the `\file` macro or by `config.mgon`.
 ///
@@ -32,7 +30,7 @@ pub struct StaticConf {
 }
 
 #[derive(Error, Debug)]
-pub enum MarkupError {
+pub enum MarkupLexerError {
     #[error("Invalid UTF-8")]
     InvalidUtf8(#[from] Utf8Error),
 }
@@ -79,7 +77,7 @@ impl<'a> VirtualLexer<'a> {
     /// and has the given length.
     //do not return tape for convenience, as `pos` might need to be adjusted before exiting handler.
     #[inline]
-    fn emit_inplace(&mut self, tape: Tape<'a,u8>, spec: TokenSpec<'a>, len: usize) {
+    fn emit_inplace(&mut self, tape: Tape<'a, u8>, spec: TokenSpec<'a>, len: usize) {
         self.tokens.push(Token::new(spec, tape.pos, tape.pos + len));
     }
 
@@ -92,7 +90,7 @@ impl<'a> VirtualLexer<'a> {
     /// If `None` is not returned, the length of `self.unclosed_pairs` is always modified
     /// and the cursor of the returned tape is left at the final character of the cluster.
     #[must_use]
-    fn handle_pair(&mut self, mut tape: Tape<'a,u8>, mask: u8) -> Option<Tape<'a,u8>> {
+    fn handle_pair(&mut self, mut tape: Tape<'a, u8>, mask: u8) -> Option<Tape<'a, u8>> {
         const BOLD_ITALIC_MASK: u8 = InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG;
         const BOLD_TY: TokenSpec<'static> = TokenSpec::InlineFormat {
             ty: InlineFormat::Bold,
@@ -154,7 +152,7 @@ impl<'a> VirtualLexer<'a> {
     /// inner content indiscrimantly. Instead, it behaves like a link,
     /// with inner markup being seperate from the token itself.
     #[must_use]
-    fn handle_quote(&mut self, mut tape: Tape<'a,u8>, quote: u8) -> Option<Tape<'a,u8>> {
+    fn handle_quote(&mut self, mut tape: Tape<'a, u8>, quote: u8) -> Option<Tape<'a, u8>> {
         if !tape.is_cur_prefix() {
             return None;
         }
@@ -185,7 +183,7 @@ impl<'a> VirtualLexer<'a> {
 
     /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
     #[must_use]
-    fn handle_obrac(&mut self, mut tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_obrac(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if self.in_alt_text {
             return None;
         }
@@ -206,7 +204,7 @@ impl<'a> VirtualLexer<'a> {
 
     /// Resolves whether a ']' character belongs to a link body, an embed body, or plain text.
     #[must_use]
-    fn handle_cbrac(&mut self, mut tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_cbrac(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if !self.in_alt_text {
             return None;
         }
@@ -239,7 +237,7 @@ impl<'a> VirtualLexer<'a> {
 
     /// Resolves whether a '.' character belongs to an ordered list item or plain text.
     #[must_use]
-    fn handle_dot(&mut self, tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_dot(&mut self, tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if tape.is_cur_prefix() {
             self.emit_inplace(
                 tape,
@@ -271,7 +269,7 @@ impl<'a> VirtualLexer<'a> {
     /// Resolves whether a '-' character belongs to an unordered list item,
     /// a checkbox, a horizontal rule, or plain text.
     #[must_use]
-    fn handle_dash(&mut self, mut tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_dash(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if matches!(tape.peek_back(), Some(b'o') | Some(b'x') | Some(b'?')) {
             // checkbox
             tape.dec(); // decrement to enable check on line start
@@ -315,7 +313,7 @@ impl<'a> VirtualLexer<'a> {
 
     /// Resolves whether a '=' character belongs to a heading or plain text.
     #[must_use]
-    fn handle_equals(&mut self, mut tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_equals(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if !tape.is_cur_prefix() {
             return None;
         }
@@ -334,7 +332,11 @@ impl<'a> VirtualLexer<'a> {
     /// Resolves whether a '$' character belongs to inline math,
     /// a dollar sign literal (if enabled), or plain text.
     #[must_use]
-    fn handle_dollar(&mut self, mut tape: Tape<'a,u8>, finance_mode: bool) -> Option<Tape<'a,u8>> {
+    fn handle_dollar(
+        &mut self,
+        mut tape: Tape<'a, u8>,
+        finance_mode: bool,
+    ) -> Option<Tape<'a, u8>> {
         let start = tape.pos;
         if tape.is_at(b"$$") {
             if !tape.is_cur_prefix() {
@@ -375,7 +377,7 @@ impl<'a> VirtualLexer<'a> {
 
     /// Resolves whether a '`' character belongs to inline code or plain text.
     #[must_use]
-    fn handle_btick(&mut self, mut tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_btick(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         let start = tape.pos;
         let spacing = self.pgraph_spacing;
         if tape.is_at(b"```") {
@@ -432,7 +434,7 @@ impl<'a> VirtualLexer<'a> {
     /// Resolves whether a `*` character belongs to a bold token,
     /// an italic token, both, or plain text.
     #[must_use]
-    fn handle_star(&mut self, tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_star(&mut self, tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if tape.is_at(b"***") {
             self.handle_pair(tape, InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG)
         } else if tape.is_at(b"**") {
@@ -446,7 +448,7 @@ impl<'a> VirtualLexer<'a> {
     /// Resolves whether a `\` character
     /// belongs to an escape character, a macro, or plain text.
     #[must_use]
-    fn handle_bslash(&mut self, mut tape: Tape<'a,u8>) -> Option<Tape<'a,u8>> {
+    fn handle_bslash(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if tape.pos == tape.raw.len() - 1 {
             return None;
         }
@@ -506,25 +508,9 @@ impl<'a> VirtualLexer<'a> {
     }
 }
 
-struct Parser<'a> {
-    tokens: Vec<Token<'a>>
-}
-
-impl<'a> Compile for Parser<'a> {
-    type Output = Result<AstNode<'a>, MarkupError>;
-
-    fn compile(self) -> Self::Output {
-        top_level_element(self.tokens)
-    }
-}
-
-impl<'a> Parser<'a> {
-    fn top_level_element(mut token: Vec<)
-}
-
 /// Draft markup syntax.
 #[derive(Debug)]
-pub struct MarkupFile<'a> {
+pub struct MarkupLexer<'a> {
     /// The input text.
     pub input: &'a [u8],
 
@@ -535,8 +521,8 @@ pub struct MarkupFile<'a> {
     pub static_conf: &'a StaticConf,
 }
 
-impl<'a> Compile for MarkupFile<'a> {
-    type Output = Result<AstNode<'a>, MarkupError>;
+impl<'a> Compile for MarkupLexer<'a> {
+    type Output = Result<Vec<Token<'a>>, MarkupLexerError>;
 
     fn compile(self) -> Self::Output {
         if !self.static_conf.trusted_mode {
@@ -545,12 +531,11 @@ impl<'a> Compile for MarkupFile<'a> {
         let tokens = self.parse_virtual_tokens();
         let mut tokens = self.parse_text_tokens(tokens);
         self.convert_bad_tokens(&mut tokens);
-        let ast = self.assemble_ast(tokens);
-        Ok(ast)
+        Ok(tokens)
     }
 }
 
-impl<'a> MarkupFile<'a> {
+impl<'a> MarkupLexer<'a> {
     pub fn new(dyn_conf: &'a DynConf, static_conf: &'a StaticConf, input: &'a [u8]) -> Self {
         Self {
             input,
@@ -560,7 +545,7 @@ impl<'a> MarkupFile<'a> {
     }
 
     #[must_use]
-    fn validate_utf8(&self) -> Result<(), MarkupError> {
+    fn validate_utf8(&self) -> Result<(), MarkupLexerError> {
         basic::from_utf8(self.input)?;
         Ok(())
     }
@@ -581,7 +566,7 @@ impl<'a> MarkupFile<'a> {
         //
         // This means we should minimize the # of match arms.
         while let Some(&ch) = self.input.get(tape.pos) {
-            let jump: Option<Tape<'a,u8>> = match ch {
+            let jump: Option<Tape<'a, u8>> = match ch {
                 // ordered by expected frequency
                 b'\n' => {
                     lex.pgraph_spacing = 2;
@@ -696,62 +681,5 @@ impl<'a> MarkupFile<'a> {
                 _ => {}
             }
         }
-    }
-
-    // 1. make rules for tokens that easily combine
-    // 2.
-
-    /// Assembles the AST according to the following grammar:
-    /// ```ebnf
-    /// topLevelElement := HorizontalRule
-    ///     | CodeBlock
-    ///     | MathBlock
-    ///     | paragraph
-    ///     | list
-    ///     | heading
-    ///     | lineQuote
-    ///     | blockQuote
-    /// heading := Heading
-    ///     & line
-    ///     & Newline
-    /// paragraph := Plaintext | Literal | link
-    ///
-    /// line := lineElement+
-    ///     & Newline
-    /// lineElement := Plaintext
-    ///     | InlineCode
-    ///     | InlineMath
-    ///     | InlineRawCode
-    ///     | Literal
-    ///     | format
-    ///     | link
-    ///     | embed
-    ///
-    /// format := InlineFormat plaintext InlineFormat
-    /// link := LinkMarker & linkTarget
-    /// embed := EmbedMarker & linkTarget
-    /// linkTarget := LinkBody | LinkAliasBody
-    ///
-    /// lineQuote := LineQuoteMarker & line
-    /// blockQuote := BlockQuoteOpen
-    ///     & (line | Newline)
-    ///     & topLevelElement+
-    ///     & BlockQuoteClose
-    ///
-    /// list := orderedList | numberedList | checklist
-    /// orderedList := (ListItemMarker & line)+
-    /// numberedList := (NumberedItemMarker & line)+
-    /// checklist := (Checkbox & line)+
-    ///
-    /// macro := MacroHandle
-    ///     & MacroArgs?
-    ///     & MacroBody*
-    /// ```
-    #[must_use]
-    fn assemble_ast(&self, tokens: Vec<Token<'a>>) -> AstNode<'a> {
-        fn top_level_element() -> Result<AstNode>
-
-        let root = AstNode::root();
-        
     }
 }

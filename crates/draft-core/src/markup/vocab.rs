@@ -141,7 +141,7 @@ impl TokenSpec<'_> {
 /// Represents a range of meaningful content in a markup file.
 ///
 /// The end index is exclusive.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token<'a> {
     pub spec: TokenSpec<'a>,
     pub start: usize,

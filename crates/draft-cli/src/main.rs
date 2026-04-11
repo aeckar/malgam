@@ -1,8 +1,9 @@
 //! CAUTION: AI-generated code
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use clap::Parser;
-use draft_core::markup::{DynConf, MarkupFile};
-use std::path::PathBuf;
+use draft_core::lex_markup::{DynConf, MarkupLexer};
 
 #[derive(Parser, Debug)]
 #[command(name = "draft")]
@@ -61,6 +62,6 @@ fn serve() {}
 // since using relatively small files, copy entire file to memory
 
 fn build(input: PathBuf) -> Result<()> {
-    let markup = MarkupFile::new(DynConf(), mgc_conf, input);
+    let markup = MarkupLexer::new(DynConf(), mgc_conf, input);
     Ok(())
 }

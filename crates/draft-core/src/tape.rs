@@ -4,24 +4,10 @@ use memchr::{memchr, memchr2, memchr3, memmem};
 
 use crate::ext::CharExt;
 
-/// Counts the number of tabs or the number of space characters divided by 4 (floored).
-///
-/// Used to determine separation between table cells and indentation of list items.
-/// For optimal performance, the given string should only consist of whitespace characters.
-///
-/// This is left private, as users should convert text to `Tape` first.
-fn count_indent(ws: &[u8]) -> u8 {
-    let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &ch| match ch {
-        b'\t' => (t + 1, s),
-        b' ' => (t, s + 1),
-        _ => (t, s),
-    });
-    tabs + (spaces / 4)
-}
-
 /// A lightweight, zero-copy cursor over a byte slice.
 ///
-/// Unlike a standard `Iterator`, `Tape` is designed specifically for
+/// This `struct` is named such to avoid confusion with the actual record
+/// of the current location, `pos`. Unlike a standard `Iterator`, `Tape` is designed specifically for
 /// non-linear parsing:
 ///
 /// * **Backtracking:** Supports moving the cursor backward (`dec`, `peek_back`)
@@ -34,11 +20,9 @@ fn count_indent(ws: &[u8]) -> u8 {
 ///   to "try" a parsing branch and then discarded if the branch fails,
 ///   restoring the original position instantly.
 ///
-/// `pos` is used to distinguish indices in a `Tape` from other data structures.
+/// The name *"pos"* is used to distinguish indices in a `Tape` from other data structures.
 /// It is not guaranteed to be within the acceptable range of indices at any given point,
 /// but member functions assume so.
-///
-/// Other common names for this data structure are *cursor* and *stream*.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tape<'a, T> {
     pub raw: &'a [T],
@@ -420,8 +404,18 @@ impl<'a> Tape<'a, u8> {
     }
 
     /// Returns the number of times the current line is indented.
+    ///
+    /// Counts the number of tabs or the number of space characters divided by 4 (floored).
+    ///
+    /// Used to determine separation between table cells and indentation of list items.
     #[must_use]
     pub fn count_indent(&self) -> u8 {
-        count_indent(&self.raw[self.poll_back(|ch, _| ch == b'\n').unwrap_or(0)..self.pos])
+        let ws = &self.raw[self.poll_back(|ch, _| ch == b'\n').unwrap_or(0)..self.pos];
+        let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &ch| match ch {
+            b'\t' => (t + 1, s),
+            b' ' => (t, s + 1),
+            _ => (t, s),
+        });
+        tabs + (spaces / 4)
     }
 }

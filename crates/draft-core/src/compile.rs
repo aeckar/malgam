@@ -1,4 +1,7 @@
-/// A language syntax that can be compiled once.
+/// Data that can be compiled once.
+/// 
+/// This trait should be implemented for complex operations
+/// where state is shared in the same `self` instance.
 pub trait Compile {
     type Output;
 

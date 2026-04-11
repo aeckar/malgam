@@ -1,11 +1,12 @@
-pub mod ast;
-pub mod compile;
-pub mod ext;
-pub mod macros;
-pub mod markup;
+mod compile;
 pub mod data;
 pub mod expr;
-pub mod tape;
-pub mod token;
-pub mod visitor;
-pub mod convert;
+mod ext;
+pub mod markup;
+mod tape;
+
+pub mod prelude {
+    pub use crate::compile::*;
+    pub use crate::ext::*;
+    pub use crate::tape::*;
+}

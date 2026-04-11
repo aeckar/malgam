@@ -22,3 +22,5 @@ BENEFITS:
   closures that capture `self`.
 - Provides zero-cost backtracking by simply letting the local copy 
   go out of scope.
+
+We are using DATA-ORIENTED DESIGN.
