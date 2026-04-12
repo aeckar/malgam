@@ -293,7 +293,7 @@ impl<'a> VirtualLexer<'a> {
         if depth > Token::HEADING_MAX {
             return Some(tape); // treat as text, but skip next few '='
         }
-        self.emit(Token::Heading { depth: depth as u8 }, start, tape.pos);
+        self.emit(Token::HeadingMarker { depth: depth as u8 }, start, tape.pos);
         self.pgraph_spacing = 1;
         tape.dec();
         Some(tape) // stop at final '='
@@ -621,7 +621,7 @@ impl<'a> Lexer<'a> {
         for i in 0..tokens.len() {
             match tokens[i].token {
                 // access by index to satisfy borrow checker
-                Heading { .. }
+                HeadingMarker { .. }
                 | LineQuoteMarker
                 | ListItemMarker { .. }
                 | NumberedItemMarker { .. }

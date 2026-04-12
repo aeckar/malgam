@@ -118,7 +118,7 @@ pub enum Token<'a> {
     BlockQuoteClose,
     MacroArgs { body: &'a [u8] }, // [ ]
     MacroBody { body: &'a [u8] }, // { }
-    Heading { depth: u8 },
+    HeadingMarker { depth: u8 },
     CodeBlock { body: &'a [u8], lang: &'a [u8] },
     MathBlock { body: &'a [u8] },
     Checkbox { depth: u8, ty: CheckboxType },

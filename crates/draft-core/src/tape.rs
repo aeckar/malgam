@@ -2,10 +2,7 @@ use std::ops::{Index, Range};
 
 use memchr::{memchr, memchr2, memchr3, memmem};
 
-use crate::{
-    ext::CharExt,
-    markup::{lex::TokenSpan, parse::Symbol},
-};
+use crate::ext::CharExt;
 
 /// A lightweight, zero-copy cursor over a byte slice.
 ///

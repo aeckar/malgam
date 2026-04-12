@@ -29,12 +29,7 @@ impl<'a> Compile for Parser<'a> {
 ///
 /// Returns `[(choice, handler)]`, or `handler` if a single name is given.
 macro_rules! rule_options {
-    // single
-    ($name:ident $(,)?) => {
-        (Self::$name as Handler<'a>)
-    };
-
-    // multiple
+    // Without offset
     ($($name:ident),* $(,)?) => {
         [
             $(
@@ -46,7 +41,7 @@ macro_rules! rule_options {
         ]
     };
 
-    // with offset
+    // With offset
     ($offset:expr; $($name:ident),* $(,)?) => {
         [
             $(
@@ -197,7 +192,7 @@ impl<'a> Rules {
 
     rule!(heading, |mut tape| {
         let mut children = vec![];
-        if let Some(child) = node::try_token(token::Heading, &mut tape) {
+        if let Some(child) = node::try_token(token::HeadingMarker, &mut tape) {
             children.push(child);
             let (child, mut tape) = Self::line(tape)?;
             children.push(child);
@@ -373,12 +368,7 @@ impl<'a> Rules {
             children_c.push(child_c);
         }
         let is_present = !children_c.is_empty();
-        let c = node::new(
-            rule::None,
-            children_c,
-            b.end,
-            meta::IsPresent(is_present),
-        );
+        let c = node::new(rule::None, children_c, b.end, meta::IsPresent(is_present));
         Some((node::branch(rule::Macro, vec![a, b, c], meta::None), tape))
     });
 }
