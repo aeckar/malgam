@@ -1,9 +1,9 @@
+pub mod config;
 mod lexer;
 mod lexer_utils;
 mod parser;
 mod parser_utils;
 pub mod traversal;
-pub mod config;
 
 pub mod lex {
     pub use super::lexer::*;

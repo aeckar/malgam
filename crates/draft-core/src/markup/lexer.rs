@@ -2,7 +2,7 @@ use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
 use crate::markup::config::{DynConf, StaticConf};
-use crate::markup::lexer_utils::{CheckboxType, InlineFormat, Numbering, Token, TokenSpan};
+use crate::markup::lexer_utils::{CheckboxType, InlineFormat as fmt, Numbering, Token, TokenSpan};
 use crate::prelude::*;
 use crate::tape::Tape;
 
@@ -69,15 +69,11 @@ impl<'a> VirtualLexer<'a> {
     /// and the cursor of the returned tape is left at the final character of the cluster.
     #[must_use]
     fn handle_pair(&mut self, mut tape: Tape<'a, u8>, mask: u8) -> Option<Tape<'a, u8>> {
-        const BOLD_ITALIC_MASK: u8 = InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG;
-        const BOLD_TY: Token<'static> = Token::InlineFormat {
-            ty: InlineFormat::Bold,
-        };
-        const ITALIC_TY: Token<'static> = Token::InlineFormat {
-            ty: InlineFormat::Italic,
-        };
+        const BOLD_ITALIC_MASK: u8 = fmt::BOLD_FLAG | fmt::ITALIC_FLAG;
+        const BOLD_TY: Token<'static> = Token::InlineFormat { ty: fmt::Bold };
+        const ITALIC_TY: Token<'static> = Token::InlineFormat { ty: fmt::Italic };
         let start = tape.pos;
-        let len = InlineFormat::len(mask);
+        let len = fmt::len(mask);
         if tape.is_l_clear(start) && !tape.is_r_clear(tape.pos) {
             // open
             // lack of lookahead prevents bottleneck
@@ -89,12 +85,12 @@ impl<'a> VirtualLexer<'a> {
         {
             // close
             let (open_mask, open_pos) = self.open_fmts.pop().unwrap();
-            let open_len = InlineFormat::len(open_mask);
+            let open_len = fmt::len(open_mask);
             // unsorted tokens don't matter since tokens are sorted after Pass 1
             if (mask & open_mask).ilog2() == 1 {
                 // basic pair
                 let token = Token::InlineFormat {
-                    ty: InlineFormat::from_flag(open_mask),
+                    ty: fmt::from_flag(open_mask),
                 };
                 self.emit(token, open_pos, open_pos + len);
                 self.emit_inplace(tape, token, open_len);
@@ -107,12 +103,12 @@ impl<'a> VirtualLexer<'a> {
                 self.emit(BOLD_TY, start + 1, start + 3);
             } else {
                 // open_mask == BOLD_ITALIC_MASK
-                if mask == InlineFormat::BOLD_FLAG {
-                    self.open_fmts.push((InlineFormat::ITALIC_FLAG, open_pos));
+                if mask == fmt::BOLD_FLAG {
+                    self.open_fmts.push((fmt::ITALIC_FLAG, open_pos));
                     self.emit(BOLD_TY, open_pos + 1, open_pos + 3);
                     self.emit_inplace(tape, BOLD_TY, 2);
                 } else {
-                    self.open_fmts.push((InlineFormat::BOLD_FLAG, open_pos));
+                    self.open_fmts.push((fmt::BOLD_FLAG, open_pos));
                     self.emit(ITALIC_TY, open_pos + 2, open_pos + 3);
                     self.emit_inplace(tape, ITALIC_TY, 1);
                 }
@@ -410,12 +406,12 @@ impl<'a> VirtualLexer<'a> {
     #[must_use]
     fn handle_star(&mut self, tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if tape.is_at(b"***") {
-            self.handle_pair(tape, InlineFormat::BOLD_FLAG | InlineFormat::ITALIC_FLAG)
+            self.handle_pair(tape, fmt::BOLD_FLAG | fmt::ITALIC_FLAG)
         } else if tape.is_at(b"**") {
-            self.handle_pair(tape, InlineFormat::BOLD_FLAG)
+            self.handle_pair(tape, fmt::BOLD_FLAG)
         } else {
             // try for '*'
-            self.handle_pair(tape, InlineFormat::ITALIC_FLAG)
+            self.handle_pair(tape, fmt::ITALIC_FLAG)
         }
     }
 
@@ -557,9 +553,9 @@ impl<'a> Lexer<'a> {
                 b'-' => lex.handle_dash(tape),
                 b'.' => lex.handle_dot(tape),
                 b'*' => lex.handle_star(tape),
-                b'_' => lex.handle_pair(tape, InlineFormat::UNDERLINE_FLAG),
-                b'|' => lex.handle_pair(tape, InlineFormat::HIGHLIGHT_FLAG),
-                b'~' => lex.handle_pair(tape, InlineFormat::STRIKETHROUGH_FLAG),
+                b'_' => lex.handle_pair(tape, fmt::UNDERLINE_FLAG),
+                b'|' => lex.handle_pair(tape, fmt::HIGHLIGHT_FLAG),
+                b'~' => lex.handle_pair(tape, fmt::STRIKETHROUGH_FLAG),
                 b'[' => lex.handle_obrac(tape),
                 b']' => lex.handle_cbrac(tape),
                 b'=' => lex.handle_equals(tape),
@@ -632,7 +628,7 @@ impl<'a> Lexer<'a> {
                 | Checkbox { .. }
                     if !tokens.get(i + 1).is_some_and(|t| t.token.is_content()) =>
                 {
-                    tokens[i].mark_plaintext();
+                    tokens[i].bind_plain();
                 }
                 LinkMarker | EmbedMarker
                     if tokens
@@ -640,10 +636,10 @@ impl<'a> Lexer<'a> {
                         .find(|t| matches!(t.token, LinkBody { .. }) || t.token.is_content())
                         .is_some_and(|t| matches!(t.token, LinkBody { .. })) =>
                 {
-                    tokens[i].mark_plaintext();
+                    tokens[i].bind_plain();
                 }
                 CodeBlock { body, .. } | MathBlock { body } if body.is_empty() => {
-                    tokens[i].mark_plaintext();
+                    tokens[i].bind_plain();
                 }
                 BlockQuoteOpen
                     if tokens
@@ -651,7 +647,7 @@ impl<'a> Lexer<'a> {
                         .find(|t| t.token == BlockQuoteClose || t.token.is_content())
                         .is_some_and(|t| t.token.is_content()) =>
                 {
-                    tokens[i].mark_plaintext();
+                    tokens[i].bind_plain();
                 }
                 _ => {}
             }

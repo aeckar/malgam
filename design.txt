@@ -28,3 +28,5 @@ We are using DATA-ORIENTED DESIGN.
 Speculative parsing returns tape, whereas sequential one-pass parsing modifies global tape directly. 
 
 callers construct node and obtain children
+
+IMPORTANT: USE lowercase for use of enum as namespace

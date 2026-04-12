@@ -1,3 +1,4 @@
+#![feature(macro_metavar_expr)]
 mod compile;
 pub mod data;
 pub mod expr;

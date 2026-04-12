@@ -1,14 +1,10 @@
-use std::{
-    ops::{Index, Range},
-};
+use std::ops::{Index, Range};
 
 use memchr::{memchr, memchr2, memchr3, memmem};
 
 use crate::{
     ext::CharExt,
-    markup::{
-        lex::{TokenKind, TokenSpan}, parse::{AstNode, NodeDesc, NodeMetadata, Pattern, RuleKind, Rules}
-    },
+    markup::{lex::TokenSpan, parse::Symbol},
 };
 
 /// A lightweight, zero-copy cursor over a byte slice.
@@ -54,7 +50,7 @@ impl<'a, T: Copy> Iterator for Tape<'a, T> {
     }
 }
 
-impl<'a, T: Copy> Tape<'a, T> {
+impl<'a, T: Copy + PartialEq> Tape<'a, T> {
     pub fn new(raw: &'a [T]) -> Self {
         Self { raw, pos: 0 }
     }
@@ -156,7 +152,7 @@ impl<'a, T: Copy> Tape<'a, T> {
     where
         F: FnMut(T, usize) -> bool,
     {
-        match self.poll(|ch, pos| !pred(ch, pos)) {
+        match self.poll(|elem, pos| !pred(elem, pos)) {
             None => &self.raw[0..0],
             Some(pos) => {
                 let res = &self.raw[self.pos..pos];
@@ -176,7 +172,7 @@ impl<'a, T: Copy> Tape<'a, T> {
     where
         F: FnMut(T, usize) -> bool,
     {
-        match self.poll_back(|ch, pos| !pred(ch, pos)) {
+        match self.poll_back(|elem, pos| !pred(elem, pos)) {
             None => &self.raw[0..0],
             Some(pos) => {
                 let res = &self.raw[self.pos..pos];
@@ -203,21 +199,30 @@ impl<'a, T: Copy> Tape<'a, T> {
             }
         }
     }
+
+    /// Returns true if the substring starting at the current position
+    /// starts with the given string.
+    #[must_use]
+    #[inline]
+    pub fn is_at(&self, query: &[T]) -> bool {
+        self.raw[self.pos..].starts_with(query)
+    }
 }
 
+/// `elem` should be used as lambda argument in case any function should be made generic.
 impl<'a> Tape<'a, u8> {
     /// Returns true if the character at the given position has clearance on its left side.
     #[must_use]
     #[inline]
     pub fn is_l_clear(&self, pos: usize) -> bool {
-        pos == 0 || self.raw.get(pos - 1).is_none_or(|ch| ch.is_file_ws())
+        pos == 0 || self.raw.get(pos - 1).is_none_or(|elem| elem.is_file_ws())
     }
 
     /// Returns true if the character at the given position has clearance on its right side.
     #[must_use]
     #[inline]
     pub fn is_r_clear(&self, pos: usize) -> bool {
-        self.raw.get(pos + 1).is_none_or(|ch| ch.is_file_ws())
+        self.raw.get(pos + 1).is_none_or(|elem| elem.is_file_ws())
     }
 
     /// Returns true if the character cluster whose last character is at
@@ -239,8 +244,8 @@ impl<'a> Tape<'a, u8> {
     {
         let text = self.raw;
         let mut nl_count = 0;
-        for (i, &ch) in text.iter().enumerate() {
-            if ch == b'\n' {
+        for (i, &elem) in text.iter().enumerate() {
+            if elem == b'\n' {
                 nl_count += 1;
                 if nl_count >= spacing {
                     return None;
@@ -248,7 +253,7 @@ impl<'a> Tape<'a, u8> {
             } else {
                 nl_count = 0;
             }
-            if pred(ch, i) {
+            if pred(elem, i) {
                 return Some(i);
             }
         }
@@ -265,7 +270,7 @@ impl<'a> Tape<'a, u8> {
     where
         F: FnMut(u8, usize) -> bool,
     {
-        match self.poll_in_pgraph(spacing, |ch, pos| !pred(ch, pos)) {
+        match self.poll_in_pgraph(spacing, |elem, pos| !pred(elem, pos)) {
             None => &self.raw[0..0],
             Some(pos) => {
                 let res = &self.raw[self.pos..pos];
@@ -375,14 +380,6 @@ impl<'a> Tape<'a, u8> {
         }
     }
 
-    /// Returns true if the substring starting at the current position
-    /// starts with the given string.
-    #[must_use]
-    #[inline]
-    pub fn is_at(&self, query: &'_ [u8]) -> bool {
-        self.raw[self.pos..].starts_with(query)
-    }
-
     /// Returns true if the current character belongs to a line prefix.
     ///
     /// A character is part of a line prefix if there are no non-whitespace characters between
@@ -419,62 +416,12 @@ impl<'a> Tape<'a, u8> {
     /// Used to determine separation between table cells and indentation of list items.
     #[must_use]
     pub fn count_indent(&self) -> u8 {
-        let ws = &self.raw[self.poll_back(|ch, _| ch == b'\n').unwrap_or(0)..self.pos];
-        let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &ch| match ch {
+        let ws = &self.raw[self.poll_back(|elem, _| elem == b'\n').unwrap_or(0)..self.pos];
+        let (tabs, spaces) = ws.iter().fold((0, 0), |(t, s), &elem| match elem {
             b'\t' => (t + 1, s),
             b' ' => (t, s + 1),
             _ => (t, s),
         });
         tabs + (spaces / 4)
-    }
-}
-
-impl<'a> Tape<'a, TokenSpan<'a>> {
-    pub fn parse_once(&self, query: impl Pattern<'a>, parent: RuleKind) -> Option<NodeDesc<'a>> {
-        let mut tape = *self;
-        if let Some(query) = query.of_token() {
-            match self.peek() {
-                Some(span) if TokenKind::from(span.token) == query => {
-                    tape.adv();
-                    Some(NodeDesc::leaf(span, parent, tape))
-                }
-                _ => None,
-            }
-        } else {
-            let query =query.of_rule().unwrap();
-            let start = tape[tape.pos].start;
-            let (children,meta,tape) = Rules::dispatch(query)?;
-            Some(NodeDesc::branch(query, parent, children, meta,start, tape))
-        }
-    }
-
-    pub fn parse_n(&self, query: impl Pattern<'a>, parent: RuleKind) -> Option<NodeDesc<'a>> {
-        let mut tape = *self;
-        if let Some(kind) = query.of_token() {
-        } else {
-            let rule = query.of_rule().unwrap();
-        }
-    }
-
-    pub fn parse_any_of(&self, query: &[&dyn Pattern<'a>], parent: RuleKind) -> Option<NodeDesc<'a>> {
-        let mut tape = *self;
-        for q in query {
-            if let Some(kind) = q.of_token() {
-            } else {
-                let rule = q.of_rule().unwrap();
-            }
-        }
-        ""
-    }
-
-    pub fn parse_in_order(&self, query: &[&dyn Pattern<'a>], parent: RuleKind) -> Option<NodeDesc<'a>> {
-        let mut tape = *self;
-        for q in query {
-            if let Some(kind) = q.of_token() {
-            } else {
-                let rule = q.of_rule().unwrap();
-            }
-        }
-        ""
     }
 }

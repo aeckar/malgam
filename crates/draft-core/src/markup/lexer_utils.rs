@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use strum::{EnumDiscriminants, EnumIter, IntoEnumIterator};
 
-use crate::markup::{parse::RuleKind, parser_utils::Pattern};
+use crate::markup::{parse::RuleKind, parser_utils::Symbol};
 
 static INLINE_FMT_VARIANTS: OnceLock<Vec<InlineFormat>> = OnceLock::new();
 
@@ -147,13 +147,17 @@ impl Token<'_> {
                 | Self::InlineFormat { .. }
         )
     }
+
+    pub fn kind(&self) -> TokenKind {
+        TokenKind::from(self)
+    }
 }
 
-impl Pattern for TokenKind {
-    fn of_rule(self) -> Option<RuleKind> {
+impl Symbol for TokenKind {
+    fn as_rule_kind(self) -> Option<RuleKind> {
         None
     }
-    fn of_token(self) -> Option<TokenKind> {
+    fn as_token_kind(self) -> Option<TokenKind> {
         Some(self)
     }
 }
@@ -180,7 +184,7 @@ impl<'a> TokenSpan<'a> {
     }
 
     /// Marks this span as plaintext.
-    pub fn mark_plaintext(&mut self) {
+    pub fn bind_plain(&mut self) {
         self.token = Token::Plaintext;
     }
 }
