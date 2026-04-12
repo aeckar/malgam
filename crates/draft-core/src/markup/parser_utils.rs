@@ -48,7 +48,6 @@ impl Symbol for RuleKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeKind<'a> {
-    Unnamed,
     Rule(RuleKind),
     Token(Token<'a>),
 }
