@@ -1,10 +1,12 @@
+use derive_more::derive::Deref;
+
 use crate::markup::lexer_utils::{Token, TokenKind, TokenSpan};
 use crate::markup::parse::SpanTape;
 use crate::markup::parser_utils::NodeMetadata as meta;
 
 /// A token or parser rule that can be matched to some slice of the
 /// list of tokens produced after lexing.
-pub trait Symbol {
+pub trait SymbolKind {
     fn as_token_kind(self) -> Option<TokenKind>;
     fn as_rule_kind(self) -> Option<RuleKind>;
 }
@@ -34,7 +36,7 @@ pub enum RuleKind {
     None,
 }
 
-impl Symbol for RuleKind {
+impl SymbolKind for RuleKind {
     fn as_rule_kind(self) -> Option<RuleKind> {
         Some(self)
     }
@@ -51,13 +53,6 @@ pub enum NodeKind<'a> {
 }
 
 impl<'a> NodeKind<'a> {
-    pub fn rule(self) -> Option<RuleKind> {
-        match self {
-            Self::Rule(rule) => Some(rule),
-            _ => None,
-        }
-    }
-
     pub fn token(self) -> Option<Token<'a>> {
         match self {
             Self::Token(token) => Some(token),
@@ -66,7 +61,7 @@ impl<'a> NodeKind<'a> {
     }
 }
 
-impl<'a> Symbol for NodeKind<'a> {
+impl<'a> SymbolKind for NodeKind<'a> {
     fn as_token_kind(self) -> Option<TokenKind> {
         match self {
             Self::Token(_) => None,
@@ -89,12 +84,16 @@ pub enum NodeMetadata {
     None,
 }
 
+/// Dereferences to its `children` vector.
+///
 /// `end` is exclusive.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deref)]
 pub struct AstNode<'a> {
+    #[deref]
+    pub children: Vec<AstNode<'a>>,
+
     pub meta: NodeMetadata,
     pub parent: Option<RuleKind>,
-    pub children: Vec<AstNode<'a>>,
     pub start: usize,
     pub end: usize,
     pub kind: NodeKind<'a>,
@@ -132,7 +131,7 @@ impl<'a> AstNode<'a> {
     }
 
     /// Returns a rule branch node.
-    /// 
+    ///
     /// Panics if `children` is empty.
     pub fn branch(rule: RuleKind, mut children: Vec<AstNode<'a>>, meta: NodeMetadata) -> Self {
         if children.is_empty() {

@@ -1,8 +1,9 @@
-use std::process::Child;
 use std::vec;
 
+use crate::markup::lex::Token;
 use crate::markup::lexer_utils::TokenKind as token;
 use crate::markup::parse::AstNode;
+use crate::markup::parse::NodeKind;
 use crate::markup::parser_utils::NodeMetadata as meta;
 use crate::markup::parser_utils::RuleKind as rule;
 use crate::{
@@ -89,7 +90,7 @@ macro_rules! token_options {
 }
 
 /// Queries the next token span in the tape, if one exists.
-/// 
+///
 /// Returns `Option(node)`.
 macro_rules! try_token {
     ($tape:expr, $name:ident $(,)?) => {
@@ -102,7 +103,7 @@ macro_rules! try_token {
 /// If the match succeeds, the the first member of the returned tuple is `true`,
 /// or `false` otherwise. The second member is always a vector containing
 /// the single matched node, or an empty list if the match failed.
-/// 
+///
 /// Returns `(is_present, children)`
 macro_rules! optional_token {
     ($tape:expr, $name:ident $(,)?) => {{
@@ -158,7 +159,7 @@ pub type Handler<'a> = fn(SpanTape<'a>) -> Option<(node<'a>, SpanTape<'a>)>;
 ///     | embed
 ///     | macro
 ///
-/// format := InlineFormat & lineElement & InlineFormat
+/// format := InlineFormat & paragraph & InlineFormat
 /// link := LinkMarker & linkTarget
 /// embed := EmbedMarker & linkTarget
 /// linkTarget := LinkBody | LinkAliasBody
@@ -295,8 +296,16 @@ impl<'a> Rules {
 
     rule!(format, |mut tape| {
         let a = try_token!(tape, InlineFormat)?;
-        let (b, mut tape) = Self::line_element(tape)?;
-        let c = try_token!(tape, InlineFormat)?;
+        let (b, mut tape) = Self::paragraph(tape)?;
+        let closer = tape.next().filter(|span| matches!(span.token, Token::InlineFormat { twin_pos, .. } if twin_pos == a.start))?;
+        let c = AstNode {
+            start: closer.start,
+            end: closer.end,
+            parent: None,
+            children: vec![],
+            meta: meta::None,
+            kind: NodeKind::Token(closer.token),
+        };
         Some((node::branch(rule::Format, vec![a, b, c], meta::None), tape))
     });
 

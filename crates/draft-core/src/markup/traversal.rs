@@ -3,25 +3,39 @@ use std::sync::OnceLock;
 use pastey::paste;
 use regex::Regex;
 
-use crate::markup::{lex::{InlineFormat, Token}, parser_utils::AstNode};
+use crate::markup::{
+    lex::{InlineFormat as fmt, Token},
+    parse::{NodeKind, SymbolKind},
+    parser_utils::AstNode,
+};
 
 static YOUTUBE_LINK: OnceLock<Regex> = OnceLock::new();
 static MEDIA_LINK: OnceLock<Regex> = OnceLock::new();
 
 /// Returns the regex for a YouTube video link.
-pub fn get_yt_link() -> &'static Regex {
+fn get_yt_link() -> &'static Regex {
     YOUTUBE_LINK.get_or_init(|| {
         Regex::new(r"(?:https?://)?(?:www\.)?(?:youtube\.com/watch\?.*v=|youtu\.be/)([\w-]{11})(?:[&?]\S*)?")
-            .expect("Invalid YouTube video regex")
+        .expect("Invalid YouTube video regex")
     })
 }
 
 /// Returns the regex for a media file link.
-pub fn get_media_link() -> &'static Regex {
+fn get_media_link() -> &'static Regex {
     MEDIA_LINK.get_or_init(|| {
         Regex::new(r"\.(csv|jpg|jpeg|png|webp|svg|mp3|ogg|opus|mp4|webm)(?:\?.*)?(?:#.*)?$")
             .expect("Invalid media file regex")
     })
+}
+
+fn media_html(tag: &str, url: &str) -> String {
+    format!(
+        "\
+        <{tag} src='{url}' controls>\
+            <span class='dt-error'>Your browser does not support the &lt;$tag&gt; tag.</span>\
+        </{tag}>\
+    "
+    )
 }
 
 macro_rules! visits {
@@ -38,16 +52,6 @@ macro_rules! visitor {
             #[inline(always)]
             fn [< visit_ $name >](&mut self, node: &AstNode<'a>) {
                 ($body as Visitor<'a,_>)(self, node)
-            }
-        }
-    };
-}
-
-macro_rules! fallthrough {
-    ($name:ident $(,)?) => {
-        paste! {
-            fn [< visit_ $name >](&mut self, node: &AstNode<'a>) {
-                self.visit_none(node);
             }
         }
     };
@@ -101,11 +105,10 @@ pub trait AstVisitor<'a> {
     visits!(format);
     visits!(link);
     visits!(embed);
+    visits!(paragraph);
     visits!(link_target);
     visits!(list);
-    visits!(unordered_list);
-    visits!(numbered_list);
-    visits!(checklist);
+    visits!(list_item);
     visits!(line_quote);
     visits!(block_quote);
     visits!(macro_rule);
@@ -143,32 +146,85 @@ pub trait AstVisitor<'a> {
 
 pub struct AstToHtml {
     out: String,
+    in_pgraph: bool,
 }
+
+impl AstToHtml {
+    pub fn new() -> Self {
+        Self {
+            out: String::new(),
+            in_pgraph: false,
+        }
+    }
+}
+
+// -- bem
+
+/*
+Block: .block
+Element: .block__element
+Modifier: .block--modifier or .block__element--modifier  */
 
 // todo integrate arena alloc
 impl<'a> AstVisitor<'a> for AstToHtml {
-    fallthrough!(list);
-    fallthrough!(line);
+    // fallthrough none
+    // fallthrough line
 
-    visitor!(none, |model|)
-
-    visitor!(markup, |model: &mut AstToHtml, node| {
-        model.out.push(ch);
+    visitor!(paragraph, |model: &mut AstToHtml, node| {
+        model.in_pgraph = true;
+        emit!(model, "<p class='dt-pgraph'>");
+        node[0]
+            .iter()
+            .filter(|&child| child.kind.as_rule_kind().is_some())
+            .for_each(|child| {
+                model.visit_line_element(child);
+            });
+        emit!(model, "</p>");
+        model.in_pgraph = false;
     });
 
+    visitor!(list, |model: &mut AstToHtml, node| {
+        for child in node.children.iter() {
+            let marker = child[0];
+        }
+    });
+
+    visitor!(markup, |model: &mut AstToHtml, node| {});
+
     visitor!(heading, |model: &mut AstToHtml, node| {
-        unpack!(node.children[0], Token::HeadingMarker { depth });
+        unpack!(node[0], Token::HeadingMarker { depth });
         emit!(model, "<h{depth}>");
-        model.visit_line(&node.children[1]);
+        model.visit_line(&node[1]);
         emit!(model, "</h{depth}>");
     });
 
     visitor!(format, |model: &mut AstToHtml, node| {
-        unpack!(node.children[0], Token::InlineFormat { ty });
+        unpack!(node[0], Token::InlineFormat { ty });
         match ty {
-            InlineFormat::Bold => {
-                emit!(model, "<>")
-                model.visit_
+            fmt::Bold => {
+                emit!(model, "<b class='dt-bold'>");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "</b>");
+            }
+            fmt::Highlight => {
+                emit!(model, "<mark class='dt-hl'>");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "</mark>");
+            }
+            fmt::Italic => {
+                emit!(model, "<i class='dt-italic'>");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "</i>");
+            }
+            fmt::Strikethrough => {
+                emit!(model, "<s class='dt-rem'>");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "</s>");
+            }
+            fmt::Underline => {
+                emit!(model, "<u class='dt-under'>");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "</u>");
             }
         }
     });
@@ -178,6 +234,10 @@ pub struct AstToMarkdown {
     out: String,
 }
 
-impl<'a> AstVisitor<'a> for AstToMarkdown {
-    
+impl AstToMarkdown {
+    pub fn new() -> Self {
+        Self { out: String::new() }
+    }
 }
+
+impl<'a> AstVisitor<'a> for AstToMarkdown {}

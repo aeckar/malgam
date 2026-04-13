@@ -2,9 +2,9 @@ use std::sync::OnceLock;
 
 use strum::{EnumDiscriminants, EnumIter, IntoEnumIterator};
 
-use crate::markup::{parse::RuleKind, parser_utils::Symbol};
+use crate::markup::{parse::RuleKind, parser_utils::SymbolKind};
 
-static INLINE_FMT_VARIANTS: OnceLock<Vec<InlineFormat>> = OnceLock::new();
+static FORMAT_VARIANTS: OnceLock<Vec<InlineFormat>> = OnceLock::new();
 
 /// The format in which a numbered list should be displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +48,8 @@ impl InlineFormat {
     pub const STRIKETHROUGH_FLAG: u8 = 0b100;
     pub const UNDERLINE_FLAG: u8 = 0b1000;
     pub const HIGHLIGHT_FLAG: u8 = 0b1_0000;
+    pub const BOLD_ITALIC: u8 = Self::BOLD_FLAG | Self::ITALIC_FLAG;
+
     const LENGTHS: [usize; 5] = [2, 1, 1, 1, 1];
 
     /// Returns the length of the character cluster that denotes the given flag or bitmask.
@@ -64,7 +66,7 @@ impl InlineFormat {
     }
 
     fn variants() -> &'static Vec<InlineFormat> {
-        INLINE_FMT_VARIANTS.get_or_init(|| InlineFormat::iter().collect())
+        FORMAT_VARIANTS.get_or_init(|| InlineFormat::iter().collect())
     }
 }
 
@@ -108,7 +110,7 @@ pub enum Token<'a> {
     InlineCode { body: &'a [u8] },    // ` `
     InlineRawCode { body: &'a [u8] }, // `` ``
     InlineMath { body: &'a [u8] },    // $ $
-    InlineFormat { ty: InlineFormat },
+    InlineFormat { ty: InlineFormat, twin_pos: usize },
 
     // Everything else
     Newline,
@@ -153,7 +155,7 @@ impl Token<'_> {
     }
 }
 
-impl Symbol for TokenKind {
+impl SymbolKind for TokenKind {
     fn as_rule_kind(self) -> Option<RuleKind> {
         None
     }
