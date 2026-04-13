@@ -10,6 +10,7 @@ repository = "https://github.com/aeckar/draft"
 [dependencies]
 thiserror = "2.0.18"
 pastey = "0.2.1"
+regex = "1.12.3"
 
 # list discriminants of `Token` and `InlineFormat`
 strum = { version = "0.28.0", features = ["derive"] }

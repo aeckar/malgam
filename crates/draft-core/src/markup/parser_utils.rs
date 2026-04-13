@@ -24,13 +24,11 @@ pub enum RuleKind {
     Format,
     Link,
     Embed,
+    List,
     LinkTarget,
     LineQuote,
     BlockQuote,
-    List,
-    UnorderedList,
-    NumberedList,
-    Checklist,
+    ListItem,
     Macro,
 
     None,
@@ -46,7 +44,7 @@ impl Symbol for RuleKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind<'a> {
     Rule(RuleKind),
     Token(Token<'a>),

@@ -1,33 +1,73 @@
-use pastey::paste;
+use std::sync::OnceLock;
 
-use crate::markup::parser_utils::AstNode;
+use pastey::paste;
+use regex::Regex;
+
+use crate::markup::{lex::{InlineFormat, Token}, parser_utils::AstNode};
+
+static YOUTUBE_LINK: OnceLock<Regex> = OnceLock::new();
+static MEDIA_LINK: OnceLock<Regex> = OnceLock::new();
+
+/// Returns the regex for a YouTube video link.
+pub fn get_yt_link() -> &'static Regex {
+    YOUTUBE_LINK.get_or_init(|| {
+        Regex::new(r"(?:https?://)?(?:www\.)?(?:youtube\.com/watch\?.*v=|youtu\.be/)([\w-]{11})(?:[&?]\S*)?")
+            .expect("Invalid YouTube video regex")
+    })
+}
+
+/// Returns the regex for a media file link.
+pub fn get_media_link() -> &'static Regex {
+    MEDIA_LINK.get_or_init(|| {
+        Regex::new(r"\.(csv|jpg|jpeg|png|webp|svg|mp3|ogg|opus|mp4|webm)(?:\?.*)?(?:#.*)?$")
+            .expect("Invalid media file regex")
+    })
+}
 
 macro_rules! visits {
     ($name:ident $(,)?) => {
         paste! {
-            fn [< visit_ $name >](&mut self, node: &AstNode<'a>) -> Self::Output;
+            fn [< visit_ $name >](&mut self, node: &AstNode<'a>);
         }
     };
 }
 
 macro_rules! visitor {
-    ($name:ident, $body:expr, $(,)?) => {
+    ($name:ident, $body:expr $(,)?) => {
         paste! {
             #[inline(always)]
-            fn [< visit_ $name >](&mut self, node: &AstNode<'a>) -> Self::Output {
-                body()
-            };
+            fn [< visit_ $name >](&mut self, node: &AstNode<'a>) {
+                ($body as Visitor<'a,_>)(self, node)
+            }
         }
     };
 }
 
-macro_rules! noop {
+macro_rules! fallthrough {
     ($name:ident $(,)?) => {
         paste! {
-            fn [< visit_ $name >](&mut self, node: &AstNode<'a>) -> Self::Output {};
+            fn [< visit_ $name >](&mut self, node: &AstNode<'a>) {
+                self.visit_none(node);
+            }
         }
     };
 }
+
+macro_rules! emit {
+    ($model:ident, $($arg:tt)* $(,)?) => {
+        $model.out.push_str(&format!($($arg)*))
+    };
+}
+
+macro_rules! unpack {
+    ($instance:expr, $variant:path { $($field:ident),* }) => {
+        let $variant { $($field),* , .. } = $instance.kind.token().unwrap() else {
+            panic!("Unpack failed: Expected {}", stringify!($variant));
+        };
+    };
+}
+
+pub type Visitor<'a, T: AstVisitor<'a>> = fn(&mut T, node: &AstNode<'a>);
 
 /// A visitor trait for traversing and processing AST (Abstract Syntax Tree) nodes.
 ///
@@ -52,8 +92,6 @@ macro_rules! noop {
 /// Each method is generic over return type `Self::Output`, allowing visitors to return different types
 /// of results depending on the implementation and context.
 pub trait AstVisitor<'a> {
-    type Output;
-
     // Rules
     visits!(markup);
     visits!(top_level_element);
@@ -98,181 +136,48 @@ pub trait AstVisitor<'a> {
     visits!(list_item_marker);
     visits!(numbered_item_marker);
     visits!(assignment_marker);
+
+    // Everything else
+    visits!(none);
 }
 
-pub struct AstToHtml {}
+pub struct AstToHtml {
+    out: String,
+}
 
 // todo integrate arena alloc
 impl<'a> AstVisitor<'a> for AstToHtml {
-    type Output = Vec<String>;
+    fallthrough!(list);
+    fallthrough!(line);
 
-    fn visit_markup(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
+    visitor!(none, |model|)
 
-    fn visit_top_level_element(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
+    visitor!(markup, |model: &mut AstToHtml, node| {
+        model.out.push(ch);
+    });
 
-    fn visit_heading(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
+    visitor!(heading, |model: &mut AstToHtml, node| {
+        unpack!(node.children[0], Token::HeadingMarker { depth });
+        emit!(model, "<h{depth}>");
+        model.visit_line(&node.children[1]);
+        emit!(model, "</h{depth}>");
+    });
 
-    fn visit_line(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_line_element(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_format(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_link(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_embed(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_link_target(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_list(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_unordered_list(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_numbered_list(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_checklist(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_line_quote(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_block_quote(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_macro_rule(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_plaintext(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_literal(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_link_body(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_link_alias_body(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_link_marker(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_embed_marker(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_macro_handle(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_inline_code(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_inline_raw_code(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_inline_math(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_inline_format(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_newline(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_horizontal_rule(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_line_quote_marker(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_block_quote_open(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_block_quote_close(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_macro_args(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_macro_body(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_heading_marker(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_code_block(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_math_block(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_checkbox(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_list_item_marker(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_numbered_item_marker(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_assignment_marker(&mut self, node: &AstNode<'a>) -> Self::Output {
-        todo!()
-    }
+    visitor!(format, |model: &mut AstToHtml, node| {
+        unpack!(node.children[0], Token::InlineFormat { ty });
+        match ty {
+            InlineFormat::Bold => {
+                emit!(model, "<>")
+                model.visit_
+            }
+        }
+    });
 }
 
-pub struct AstToMarkdown {}
+pub struct AstToMarkdown {
+    out: String,
+}
 
 impl<'a> AstVisitor<'a> for AstToMarkdown {
-    type Output = Vec<String>;
+    
 }

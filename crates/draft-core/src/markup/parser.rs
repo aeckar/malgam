@@ -1,3 +1,6 @@
+use std::process::Child;
+use std::vec;
+
 use crate::markup::lexer_utils::TokenKind as token;
 use crate::markup::parse::AstNode;
 use crate::markup::parser_utils::NodeMetadata as meta;
@@ -33,7 +36,7 @@ macro_rules! rule_options {
     ($($name:ident),* $(,)?) => {
         [
             $(
-                    (
+                (
                     meta::Choice(${index()} as u8),
                     Self::$name as Handler<'a>
                 )
@@ -85,6 +88,30 @@ macro_rules! token_options {
     };
 }
 
+/// Queries the next token span in the tape, if one exists.
+/// 
+/// Returns `Option(node)`.
+macro_rules! try_token {
+    ($tape:expr, $name:ident $(,)?) => {
+        node::try_token(token::$name, &mut $tape)
+    };
+}
+
+/// Queries the next token span in the tape, if one exists.
+///
+/// If the match succeeds, the the first member of the returned tuple is `true`,
+/// or `false` otherwise. The second member is always a vector containing
+/// the single matched node, or an empty list if the match failed.
+/// 
+/// Returns `(is_present, children)`
+macro_rules! optional_token {
+    ($tape:expr, $name:ident $(,)?) => {{
+        let children: Vec<AstNode<'a>> = try_token!($tape, $name).into_iter().collect();
+        let is_present = meta::IsPresent(!children.is_empty());
+        (is_present, children)
+    }};
+}
+
 /// Declares a handler for the rule of the given name.
 ///
 /// `body` is passed as a closure (as opposed to a block) to allow for full IntelliSense
@@ -117,7 +144,7 @@ pub type Handler<'a> = fn(SpanTape<'a>) -> Option<(node<'a>, SpanTape<'a>)>;
 /// heading := Heading
 ///     & line
 ///     & Newline
-/// paragraph := Plaintext | Literal | link
+/// paragraph := (Newline | lineElement)+ (stop-at:Newline & Newline)
 ///
 /// line := lineElement+
 ///     & Newline
@@ -142,10 +169,8 @@ pub type Handler<'a> = fn(SpanTape<'a>) -> Option<(node<'a>, SpanTape<'a>)>;
 ///     & topLevelElement+
 ///     & BlockQuoteClose
 ///
-/// list := unorderedList | numberedList | checklist
-/// unorderedList := (ListItemMarker & line)+
-/// numberedList := (NumberedItemMarker & line)+
-/// checklist := (Checkbox & line)+
+/// list := listItem+
+/// listItem := (ListItemMarker | NumberedItemMarker | Checkbox) & paragraph
 ///
 /// macro := MacroHandle
 ///     & MacroArgs?
@@ -159,6 +184,12 @@ pub type Handler<'a> = fn(SpanTape<'a>) -> Option<(node<'a>, SpanTape<'a>)>;
 ///
 /// This parser, like `Lexer`, is hand-written to encourage a simple API and
 /// optimal performance.
+///
+/// It is imperative to keep the DSL-like macro API
+/// internal as opposed to transferring it to a library to ensure all project constraints,
+/// including performance. This applies to traversal as well.
+///
+/// Macros for common operations enable rapid iteration for changes in the EBNF.
 pub struct Rules;
 
 impl<'a> Rules {
@@ -179,7 +210,9 @@ impl<'a> Rules {
                 tape,
             ));
         }
-        for (choice, handler) in rule_options![len; list, heading, line_quote, block_quote] {
+        for (choice, handler) in
+            rule_options![len; paragraph, list, heading, line_quote, block_quote]
+        {
             if let Some((child, jump)) = handler(tape) {
                 return Some((
                     node::branch(rule::TopLevelElement, vec![child], choice),
@@ -192,11 +225,11 @@ impl<'a> Rules {
 
     rule!(heading, |mut tape| {
         let mut children = vec![];
-        if let Some(child) = node::try_token(token::HeadingMarker, &mut tape) {
+        if let Some(child) = try_token!(tape, HeadingMarker) {
             children.push(child);
             let (child, mut tape) = Self::line(tape)?;
             children.push(child);
-            if let Some(child) = node::try_token(token::Newline, &mut tape) {
+            if let Some(child) = try_token!(tape, Newline) {
                 children.push(child);
                 return Some((node::branch(rule::Heading, children, meta::None), tape));
             }
@@ -214,7 +247,7 @@ impl<'a> Rules {
             return None;
         }
         let a = node::branch(rule::None, children_a, meta::None);
-        if let Some(b) = node::try_token(token::Newline, &mut tape) {
+        if let Some(b) = try_token!(tape, Newline) {
             return Some((node::branch(rule::Line, vec![a, b], meta::None), tape));
         }
         None
@@ -234,21 +267,47 @@ impl<'a> Rules {
         None
     });
 
+    rule!(paragraph, |mut tape| {
+        let mut children = vec![];
+        loop {
+            let (choice, child_a) = if let Some(child_a) = try_token!(tape, Newline) {
+                if tape
+                    .peek()
+                    .is_some_and(|span| span.token.kind() == token::Newline)
+                {
+                    break;
+                }
+                (0, child_a)
+            } else if let Some((child_a, jump)) = Self::line_element(tape) {
+                tape = jump;
+                (1, child_a)
+            } else {
+                break;
+            };
+            let child = node::branch(rule::None, vec![child_a], meta::Choice(choice));
+            children.push(child);
+        }
+        if children.is_empty() {
+            return None;
+        }
+        Some((node::branch(rule::None, children, meta::None), tape))
+    });
+
     rule!(format, |mut tape| {
-        let a = node::try_token(token::InlineFormat, &mut tape)?;
+        let a = try_token!(tape, InlineFormat)?;
         let (b, mut tape) = Self::line_element(tape)?;
-        let c = node::try_token(token::InlineFormat, &mut tape)?;
+        let c = try_token!(tape, InlineFormat)?;
         Some((node::branch(rule::Format, vec![a, b, c], meta::None), tape))
     });
 
     rule!(link, |mut tape| {
-        let a = node::try_token(token::LinkMarker, &mut tape)?;
+        let a = try_token!(tape, LinkMarker)?;
         let (b, tape) = Self::link_target(tape)?;
         Some((node::branch(rule::Link, vec![a, b], meta::None), tape))
     });
 
     rule!(embed, |mut tape| {
-        let a = node::try_token(token::EmbedMarker, &mut tape)?;
+        let a = try_token!(tape, EmbedMarker)?;
         let (b, tape) = Self::link_target(tape)?;
         Some((node::branch(rule::Embed, vec![a, b], meta::None), tape))
     });
@@ -261,76 +320,37 @@ impl<'a> Rules {
         None
     });
 
-    rule!(list, |tape| {
-        for (choice, handler) in rule_options![unordered_list, numbered_list, checklist] {
-            if let Some((child, jump)) = handler(tape) {
-                return Some((node::branch(rule::List, vec![child], choice), jump));
-            }
+    rule!(list, |mut tape| {
+        let mut children_a = vec![];
+        while let Some((child_a, jump)) = Self::list_item(tape) {
+            children_a.push(child_a);
+            tape = jump;
         }
-        None
-    });
-
-    rule!(unordered_list, |mut tape| {
-        let mut children = vec![];
-        while let Some(a) = node::try_token(token::ListItemMarker, &mut tape) {
-            if let Some((b, jump)) = Self::line(tape) {
-                children.push(node::branch(rule::None, vec![a, b], meta::None));
-                tape = jump;
-            } else {
-                break;
-            }
-        }
-        if children.is_empty() {
+        if children_a.is_empty() {
             return None;
         }
-        Some((
-            node::branch(rule::UnorderedList, children, meta::None),
-            tape,
-        ))
+        let a = node::branch(rule::None, children_a, meta::None);
+        Some((node::branch(rule::List, vec![a], meta::None), tape))
     });
 
-    rule!(numbered_list, |mut tape| {
-        let mut children = vec![];
-        while let Some(a) = node::try_token(token::NumberedItemMarker, &mut tape) {
-            if let Some((b, jump)) = Self::line(tape) {
-                children.push(node::branch(rule::None, vec![a, b], meta::None));
-                tape = jump;
-            } else {
-                break;
-            }
-        }
-        if children.is_empty() {
-            return None;
-        }
-        Some((node::branch(rule::NumberedList, children, meta::None), tape))
-    });
-
-    rule!(checklist, |mut tape| {
-        let mut children = vec![];
-        while let Some(a) = node::try_token(token::Checkbox, &mut tape) {
-            if let Some((b, jump)) = Self::line(tape) {
-                children.push(node::branch(rule::None, vec![a, b], meta::None));
-                tape = jump;
-            } else {
-                break;
-            }
-        }
-        if children.is_empty() {
-            return None;
-        }
-        Some((node::branch(rule::Checklist, children, meta::None), tape))
+    rule!(list_item, |mut tape| {
+        let (_, res) = token_options![tape;ListItemMarker,NumberedItemMarker, Checkbox];
+        let (choice, child) = res?;
+        let a = node::branch(rule::None, vec![child], choice);
+        let (b, tape) = Self::paragraph(tape)?;
+        Some((node::branch(rule::ListItem, vec![a, b], meta::None), tape))
     });
 
     rule!(line_quote, |mut tape| {
-        let a = node::try_token(token::LineQuoteMarker, &mut tape)?;
+        let a = try_token!(tape, LineQuoteMarker)?;
         let (b, tape) = Self::link_target(tape)?;
         Some((node::branch(rule::LineQuote, vec![a, b], meta::None), tape))
     });
 
     rule!(block_quote, |mut tape| {
-        let a = node::try_token(token::BlockQuoteOpen, &mut tape)?;
+        let a = try_token!(tape, BlockQuoteOpen)?;
         let choice: u8;
-        let child_b = if let Some(child_b) = node::try_token(token::Newline, &mut tape) {
+        let child_b = if let Some(child_b) = try_token!(tape, Newline) {
             choice = 0;
             child_b
         } else {
@@ -349,7 +369,7 @@ impl<'a> Rules {
             return None;
         }
         let c = node::branch(rule::None, children_c, meta::None);
-        let d = node::try_token(token::BlockQuoteClose, &mut tape)?;
+        let d = try_token!(tape, BlockQuoteClose)?;
         Some((
             node::branch(rule::BlockQuote, vec![a, b, c, d], meta::None),
             tape,
@@ -357,14 +377,11 @@ impl<'a> Rules {
     });
 
     rule!(macro_rule, |mut tape| {
-        let a = node::try_token(token::MacroHandle, &mut tape)?;
-        let children_b: Vec<AstNode<'a>> = node::try_token(token::MacroArgs, &mut tape)
-            .into_iter()
-            .collect();
-        let is_present = !children_b.is_empty();
-        let b = node::new(rule::None, children_b, a.end, meta::IsPresent(is_present));
+        let a = try_token!(tape, MacroHandle)?;
+        let (is_present, children_b) = optional_token!(tape, MacroArgs);
+        let b = node::new(rule::None, children_b, a.end, is_present);
         let mut children_c = vec![];
-        while let Some(child_c) = node::try_token(token::MacroBody, &mut tape) {
+        while let Some(child_c) = try_token!(tape, MacroBody) {
             children_c.push(child_c);
         }
         let is_present = !children_c.is_empty();

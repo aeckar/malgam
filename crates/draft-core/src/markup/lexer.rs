@@ -240,26 +240,27 @@ impl<'a> VirtualLexer<'a> {
     /// a checkbox, a horizontal rule, or plain text.
     #[must_use]
     fn handle_dash(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
-        if matches!(tape.peek_back(), Some(b'o') | Some(b'x') | Some(b'?')) {
+        if !tape.is_cur_prefix() {
+            return None;
+        }
+        if matches!(tape.peek(), Some(b'o') | Some(b'x') | Some(b'?')) {
             // checkbox
-            tape.dec(); // decrement to enable check on line start
-            if !tape.is_cur_prefix() {
-                return None;
+            tape.adv(); // skip '-'
+            let marker = tape[tape.pos];
+            if marker == b'o' || marker == b'x' {
+                tape.peek().filter(|ch| ch.is_file_ws())?;
             }
             self.emit_inplace(
                 tape,
                 Token::Checkbox {
                     depth: tape.count_indent(),
-                    ty: CheckboxType::from_marker(tape[tape.pos])?,
+                    ty: CheckboxType::from_marker(marker)?,
                 },
                 2,
             );
             tape.adv();
             self.pgraph_spacing = 1;
             return Some(tape); // stop at '-'
-        }
-        if !tape.is_cur_prefix() {
-            return None;
         }
         if tape.is_at(b"--") {
             tape.pos += 2;
@@ -496,7 +497,8 @@ impl<'a> Compile for Lexer<'a> {
 
     fn compile(self) -> Self::Output {
         if !self.static_conf.trusted_mode {
-            self.validate_utf8()?;
+            let this = &self;
+            basic::from_utf8(this.input)?;
         }
         let tokens = self.parse_virtual_tokens();
         let mut tokens = self.parse_text_tokens(tokens);
@@ -513,12 +515,6 @@ impl<'a> Lexer<'a> {
             dyn_conf,
             static_conf,
         }
-    }
-
-    #[must_use]
-    fn validate_utf8(&self) -> Result<(), LexerError> {
-        basic::from_utf8(self.input)?;
-        Ok(())
     }
 
     #[must_use]
@@ -566,7 +562,7 @@ impl<'a> Lexer<'a> {
                     tape.seek_ch(b'\n');
                     Some(tape)
                 }
-                _ => None,
+                _ => None,  // includes spaces, tabs
             };
             if let Some(jump) = jump {
                 tape = jump;
