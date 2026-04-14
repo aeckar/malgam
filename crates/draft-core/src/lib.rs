@@ -1,4 +1,4 @@
-#![feature(macro_metavar_expr)] //fixme
+#![feature(macro_metavar_expr)]
 mod compile;
 mod ext;
 mod tape;

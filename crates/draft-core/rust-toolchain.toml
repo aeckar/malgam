@@ -1,2 +1,7 @@
 [toolchain]
-channel = "nightly"
+# rustup toolchain install nightly-2026-04-14
+# rustup component add clippy --toolchain nightly-2026-04-14
+# rustup override set nightly-2026-04-14
+channel = "nightly-2026-04-14"
+
+components = ["rust-analyzer", "clippy"]
