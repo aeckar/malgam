@@ -27,12 +27,24 @@ pub mod prelude {
     pub use super::{compile::*, ext::*, tape::*};
 }
 
+/// Unpacks a struct-like enum variant from a value, asserting that
+/// the value matches the expected variant.
+///
+/// This macro expands to a `let` binding with an `else` branch that panics
+/// if the pattern does not match. It supports binding variant fields by
+/// name, optional aliasing, and an optional `..` to ignore remaining fields.
+/// 
+/// # Examples
+/// ```rust
+/// unpack!(value, MyEnum::Variant { a, b: alias, .. });
+/// ```
+///
+/// # Panics
+/// Panics if the provided instance is not the expected variant.
 #[macro_export]
 macro_rules! unpack {
-    ($instance:expr, $variant:ty { $($field:ident $(: $alias:ident)?),* $(, ..)? }) => {
-        let $variant {
-            $($field $(: $alias)?),* , ..
-        } = $instance else {
+    ($instance:expr, $variant:pat) => {
+        let $variant = $instance else {
             panic!("Unpack failed: Expected {}", stringify!($variant));
         };
     };

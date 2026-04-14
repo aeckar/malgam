@@ -141,6 +141,7 @@ impl<'a> AstNode<'a> {
 
     /// Returns a rule branch node.
     ///
+    /// # Panics
     /// Panics if `children` is empty.
     pub fn branch(rule: RuleKind, mut children: Vec<AstNode<'a>>, meta: NodeMetadata) -> Self {
         if children.is_empty() {
@@ -161,6 +162,7 @@ impl<'a> AstNode<'a> {
 
     /// Returns a token leaf node using the next token span in the tape.
     ///
+    /// # Panics
     /// Panics if `tape` is exhausted.
     #[inline]
     pub fn token(span: TokenSpan<'a>) -> Self {
@@ -177,6 +179,7 @@ impl<'a> AstNode<'a> {
     /// Returns a token leaf node using the next token span in the tape,
     /// incrementing `tape.pos` on success.
     ///
+    /// # Panics
     /// Panics if the tape is exhausted.
     pub fn try_token(token: TokenKind, tape: &mut TokenStream<'a>) -> Option<Self> {
         if tape.peek().is_none_or(|span| span.token.kind() != token) {

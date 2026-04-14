@@ -7,7 +7,9 @@ use crate::{
             AstNode, AstNode as node, Handler, NodeKind, NodeMetadata as meta, Result,
             RuleKind as rule, TokenStream,
         },
-    }, prelude::*, unpack, unpack_token
+    },
+    prelude::*,
+    unpack, unpack_token,
 };
 
 /// Since a zero-length input is also accepted, a match (even if partial)
@@ -367,22 +369,29 @@ impl<'a> Grammar {
             kind_a
         };
         if parent.children.is_empty() {
+            a.meta = meta::ListItem {
+                kind: kind_a,
+                pos: ListItemPos::First,
+            };
+        } else {
             let mut pos = ListItemPos::Any.bits();
+            let prev = parent.children.last_mut().unwrap();
             unpack_token!(
-                parent.children.last().unwrap(),
-                ListItemMarker { indent, .. }
+                prev,
+                ListItemMarker {
+                    indent: prev_indent,
+                    ..
+                }
             );
-            if indent > indent_a {
+            if prev_indent > indent_a {
                 pos |= ListItemPos::First.bits();
+            } else if prev_indent < indent_a {
+                unpack!(prev.meta, meta::ListItem { kind: prev_kind, .. });
+                prev.meta = meta::ListItem { kind: prev_kind, pos: () }
             }
             a.meta = meta::ListItem {
                 kind: kind_a,
                 pos: ListItemPos::from_bits(pos).unwrap(),
-            };
-        } else {
-            a.meta = meta::ListItem {
-                kind: kind_a,
-                pos: ListItemPos::Any,
             };
         }
         let (b, tape) = Self::paragraph(tape)?;

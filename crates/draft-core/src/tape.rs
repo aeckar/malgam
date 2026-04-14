@@ -24,6 +24,7 @@ use crate::ext::CharExt;
 /// It is not guaranteed to be within the acceptable range of indices at any given point,
 /// but member functions assume so.
 ///
+/// # Implementation
 /// `#[inline(always)]` should be restricted to functions called often in the
 /// main `Scanner`/`Grammar` recursions, where the benefit of inlining is completely certain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

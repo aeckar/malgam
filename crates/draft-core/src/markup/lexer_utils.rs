@@ -5,6 +5,30 @@ use strum::EnumDiscriminants;
 
 use crate::markup::parse::{RuleKind, SymbolKind};
 
+/// Unpacks a specific enum variant from a token, destructuring its fields into local variables.
+///
+/// This macro simplifies extracting data from `$crate::markup::lex::Token`. It performs
+/// an immutable borrow of the token and uses a `let-else` statement to panic if
+/// the variant does not match the expected type.
+///
+/// # Arguments
+/// * `$instance` - An expression that provides access to the token (e.g., an AST node or wrapper).
+/// * `$variant` - The specific `Token` variant name to match (e.g., `Identifier`).
+/// * `{ $($field ... )* }` - A standard destructuring block. Supports field renaming
+///   (`field: alias`) and the `..` rest pattern.
+///
+/// # Panics
+/// Panics if the token is `None` (via `.unwrap()`) or if the token's variant
+/// does not match `$variant`.
+///
+/// # Examples
+/// ```
+/// // Simple destructuring: creates local variables 'name' and 'span'
+/// unpack_token!(node, Identifier { name, span });
+///
+/// // With renaming and rest pattern: creates variable 'val' from 'value'
+/// unpack_token!(node, Literal { value: val, .. });
+/// ```
 #[macro_export]
 macro_rules! unpack_token {
     ($instance:expr, $variant:ident { $($field:ident $(: $alias:ident)?),* $(, ..)? }) => {

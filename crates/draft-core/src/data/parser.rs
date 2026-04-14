@@ -147,7 +147,6 @@ impl<'a> Compile for DataFile<'a> {
     }
 }
 
-// todo use string slices
 /// All `parse_X` functions assume cursor is at a valid character.
 impl<'a> DataFile<'a> {
     pub fn new(input: &'a str) -> Self {

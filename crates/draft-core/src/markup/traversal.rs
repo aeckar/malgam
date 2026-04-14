@@ -4,7 +4,7 @@ use indoc::formatdoc;
 use pastey::paste;
 
 use crate::{markup::{
-    lex::{InlineFormat as fmt},
+    scan::{InlineFormat as fmt},
     parse::{AstNode, SymbolKind},
 }, unpack_token};
 
