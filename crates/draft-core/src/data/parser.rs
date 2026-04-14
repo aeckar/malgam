@@ -1,16 +1,12 @@
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::str::Utf8Error;
+use std::{collections::HashMap, fmt::Display, str::Utf8Error};
 
 use thiserror::Error;
 
-use crate::ext::{CharExt, SliceExt};
-use crate::markup::Compile;
-use crate::tape::Tape;
+use crate::prelude::*;
 
-/// An instance of a Draft object.
+/// An instance of a data object.
 ///
-/// Roughly reflects JSON data types. Numbers **must** start with a digit.
+/// Roughly reflects JSON data types. Numbers **must** start with a digit, `+`, or `-`.
 /// Unlike standard JSON, allows for trailing commas.
 ///
 /// All numbers follow  IEEE 754 64-bit floating-point format, including
@@ -19,11 +15,11 @@ use crate::tape::Tape;
 ///
 /// Strings may be enclosed using either `'` or `"`.
 ///
+///
+///
 /// The `fmt` (and as a result, `to_string`) implementations emit the
 /// most concise object notation possible. Pretty printing is supported via the
 /// `pfmt` and `to_pstring` functions. Strings are always enclosed using `"`.
-///
-/// Keys can be
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataValue {
     Null,
@@ -133,7 +129,11 @@ pub enum DataError {
     },
 }
 
-/// Draft Object Notation (DON) syntax.
+/// Object notation syntax.
+///
+/// # Implementation
+/// Since object notation is relatively small compared to markup, we skip `simdutf8`
+/// for UTF-8 validation. Instead, we give callers that responsibility (except for slices).
 pub struct DataFile<'a> {
     /// The input text.
     pub input: &'a [u8],
@@ -156,8 +156,7 @@ impl<'a> DataFile<'a> {
     }
 
     fn parse_any(&self, tape: &mut Tape<'a, u8>) -> Result<DataValue, DataError> {
-        use lexical_core::format;
-        use lexical_core::parse_float_options as options;
+        use lexical_core::{format, parse_float_options as options};
         const NUM_FMT: u128 = format::STANDARD;
         const NUM_OPTIONS: options::Options = options::Options::builder()
             .decimal_point(b'.')
@@ -193,6 +192,7 @@ impl<'a> DataFile<'a> {
             b'.' => self.parse_obj(tape, "".to_string()),
             b'{' => self.parse_list(tape),
             b'"' => {
+                // todo escapes, multiline
                 if !tape.seek_at_in_pgraph(1, b"\"") {
                     Err(DataError::MissingCloser {
                         open: b'"',
@@ -201,11 +201,12 @@ impl<'a> DataFile<'a> {
                     })
                 } else {
                     Ok(DataValue::String(
-                        tape.slice(start + 1..tape.pos).to_utf8()?,
+                        tape.slice(start + 1..tape.pos).to_utf8()?.to_owned(),
                     ))
                 }
             }
             b'\'' => {
+                // todo escapes, multiline
                 if !tape.seek_at_in_pgraph(1, b"'") {
                     Err(DataError::MissingCloser {
                         open: b'\'',
@@ -214,12 +215,12 @@ impl<'a> DataFile<'a> {
                     })
                 } else {
                     Ok(DataValue::String(
-                        tape.slice(start + 1..tape.pos).to_utf8()?,
+                        tape.slice(start + 1..tape.pos).to_utf8()?.to_owned(),
                     ))
                 }
             }
             b'-' | b'+' | b'0'..=b'9' => lexical_core::parse_partial_with_options::<f64, NUM_FMT>(
-                tape.slice(tape.pos..tape.raw.len()),
+                tape.from_pos(),
                 &NUM_OPTIONS,
             )
             .inspect(|&(_, len)| tape.pos += len)
@@ -280,17 +281,16 @@ impl<'a> DataFile<'a> {
 
             // Get key
             let key: &'a [u8];
-            let raw = tape.raw;
             if ch == b'"' {
                 tape.adv();
                 key = tape.consume(|ch, pos| {
-                    (ch != b'"' && ch != b'\n') || ch == b'"' && raw.get(pos - 1) == Some(&b'\\')
+                    (ch != b'"' && ch != b'\n') || ch == b'"' && tape.get(pos - 1) == Some(&b'\\')
                 });
                 tape.adv(); // skip '"'
             } else if ch == b'\'' {
                 tape.adv();
                 key = tape.consume(|ch, pos| {
-                    (ch != b'\'' && ch != b'\n') || ch == b'\'' && raw.get(pos - 1) == Some(&b'\\')
+                    (ch != b'\'' && ch != b'\n') || ch == b'\'' && tape.get(pos - 1) == Some(&b'\\')
                 });
                 tape.adv(); // skip `'`
             } else if matches!(ch, b'-' | b'$' | b'a'..=b'z' | b'A'..=b'Z') {

@@ -44,10 +44,12 @@ pub enum RuleKind {
 }
 
 impl SymbolKind for RuleKind {
+    #[inline]
     fn as_rule_kind(self) -> Option<RuleKind> {
         Some(self)
     }
 
+    #[inline]
     fn as_token_kind(self) -> Option<TokenKind> {
         None
     }
@@ -70,6 +72,7 @@ impl<'a> NodeKind<'a> {
 }
 
 impl<'a> SymbolKind for NodeKind<'a> {
+    #[inline]
     fn as_token_kind(self) -> Option<TokenKind> {
         match self {
             Self::Token(_) => None,
@@ -77,6 +80,7 @@ impl<'a> SymbolKind for NodeKind<'a> {
         }
     }
 
+    #[inline]
     fn as_rule_kind(self) -> Option<RuleKind> {
         match self {
             Self::Rule(rule) => Some(rule),
@@ -89,7 +93,10 @@ impl<'a> SymbolKind for NodeKind<'a> {
 pub enum NodeMetadata {
     Choice(u8),
     IsPresent(bool),
-    ListItem { kind: ListItemKind, pos: ListItemPos },
+    ListItem {
+        kind: ListItemKind,
+        pos: ListItemPos,
+    },
     None,
 }
 

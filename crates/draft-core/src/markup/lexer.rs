@@ -2,15 +2,13 @@ use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
 use crate::{
+    data::parser::{DataFile, DataValue},
     markup::{
         config::{DynConf, StaticConf},
-        lex::{
-            CheckboxType, InlineFormat, ListItemKind, Numbering, Token,
-            TokenSpan,
-        },
+        lex::{CheckboxType, InlineFormat, ListItemKind, Numbering, Token, TokenSpan},
     },
     prelude::*,
-    tape::Tape,
+    tape::{self, Tape},
 };
 
 #[derive(Error, Debug)]
@@ -19,7 +17,7 @@ pub enum LexerError {
     InvalidUtf8(#[from] Utf8Error),
 }
 
-/// Draft markup syntax.
+/// Markup syntax.
 #[derive(Debug)]
 pub struct Lexer<'a> {
     /// The input text.
@@ -112,7 +110,7 @@ impl<'a> Lexer<'a> {
         scan.tokens
             .sort_unstable_by(|t1, t2| t1.start.cmp(&t2.start));
         scan.tokens
-            .push(TokenSpan::new(Token::Eof, tape.raw.len(), tape.raw.len()));
+            .push(TokenSpan::new(Token::Eof, tape.len(), tape.len()));
         scan.tokens
     }
 
@@ -253,7 +251,10 @@ impl<'a> Scanner<'a> {
             tape.pos += len - 1;
             return Some(tape);
         } else if tape.is_r_clear(start)
-            && self.open_fmts.last().is_some_and(|(last, _)| last.intersects(fmt))
+            && self
+                .open_fmts
+                .last()
+                .is_some_and(|(last, _)| last.intersects(fmt))
         {
             // close
             let (open_mask, open_pos) = self.open_fmts.pop().unwrap();
@@ -394,14 +395,16 @@ impl<'a> Scanner<'a> {
         None
     }
 
-    /// Resolves whether a '[' character belongs to a link, an embed, or plain text.
+    /// Resolves whether a '[' character belongs to a link, an embed, an assignment, or plain text.
     #[must_use]
     fn handle_obrac(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if self.in_alt_text {
             return None;
         }
+        if let Some(tape) = self.try_assignment(tape) {
+            return Some(tape);
+        }
         tape.adv(); // skip '['
-
         tape.poll_in_pgraph(self.pgraph_spacing, |ch, pos| {
             let next = tape[pos + 1];
             ch == b']' && (next == b'(' || next == b'[')
@@ -413,6 +416,39 @@ impl<'a> Scanner<'a> {
         }
         self.in_alt_text = true;
         Some(tape)
+    }
+
+    #[must_use]
+    fn try_assignment(&self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
+        let start = tape.pos;
+        tape.adv(); // skip `[`
+        tape.consume(|ch, _| ch.is_file_ws());
+        let start = tape.next().filter(|ch, _| ch.is_file_key_start())?;
+        let parts = tape.consume(|ch, _| ch.is_file_key_part());
+        if parts.is_empty() {
+            return None;
+        }
+        tape.consume(|ch, _| ch.is_file_ws());
+        tape.next().filter(|ch, _| ch == b']')?;
+        tape.consume(|ch, _| ch.is_file_ws());
+        tape.next().filter(|ch, _| ch == b'=')?;
+        tape.consume(|ch, _| ch.is_file_ws());
+        let data = match tape.rest().to_utf8() {
+            Ok(data) => data,
+            Err(e) => {
+                let data = str::from_utf8(&tape.rest()[..e.valid_up_to()]).unwrap();
+                self.emit(
+                    Token::CorruptText,
+                    tape.pos + e.valid_up_to(),
+                    tape.pos + e.valid_up_to() + e.error_len(),
+                );
+                data
+            }
+        };
+
+        DataFile::new().compile();
+
+        DataValue
     }
 
     /// Resolves whether a ']' character belongs to a link body, an embed body, or plain text.
@@ -660,7 +696,7 @@ impl<'a> Scanner<'a> {
     /// belongs to an escape character, a macro, or plain text.
     #[must_use]
     fn handle_bslash(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
-        if tape.pos == tape.raw.len() - 1 {
+        if tape.pos == tape.len() - 1 {
             return None;
         }
         let start = tape.pos; // keep for macro handle token

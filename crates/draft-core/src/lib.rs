@@ -1,6 +1,6 @@
 //! `#[inline(always)]` should not be used except under extraordinary cirumstances (see `Tape`).
 //! One should mark small functions that resolve to non-block expressions with `#[inline]`
-//! to enable inlining from external crates.
+//! to enable inlining from external crates. This applies to trait functions as well.
 //!
 //! When applicable, functions should be marked `const`.
 //! 

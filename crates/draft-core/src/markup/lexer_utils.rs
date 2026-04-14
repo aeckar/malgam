@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use bitflags::bitflags;
 use strum::EnumDiscriminants;
 
-use crate::markup::parse::{RuleKind, SymbolKind};
+use crate::{data::parser::DataValue, markup::parse::{RuleKind, SymbolKind}};
 
 /// Unpacks a specific enum variant from a token, destructuring its fields into local variables.
 ///
@@ -210,7 +210,10 @@ pub enum Token<'a> {
     CodeBlock { body: &'a [u8], lang: &'a [u8] },
     MathBlock { body: &'a [u8] },
     ListItemMarker { indent: u8, kind: ListItemKind },
-    AssignmentMarker { alias: &'a [u8] }, // [<key>]=<value>//todo works for citations via interpolation (`{paul}` => `[paul]=cite.{}`)
+    Assignment { key: &'a [u8], value: DataValue }, // [<key>]=<value>//todo works for citations via interpolation (`{paul}` => `[paul]=cite.{}`)
+
+    // Special
+    CorruptText,
     Eof, // necessary to find bound for trailing plaintext; pruned before parsing
 }
 
@@ -242,9 +245,12 @@ impl Token<'_> {
 }
 
 impl SymbolKind for TokenKind {
+    #[inline]
     fn as_rule_kind(self) -> Option<RuleKind> {
         None
     }
+
+    #[inline]
     fn as_token_kind(self) -> Option<TokenKind> {
         Some(self)
     }

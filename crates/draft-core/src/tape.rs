@@ -1,5 +1,6 @@
-use std::ops::{Index, Range};
+use std::ops::{Index, Range, RangeTo};
 
+use derive_more::Deref;
 use memchr::{memchr, memchr2, memchr3, memmem};
 
 use crate::ext::CharExt;
@@ -27,28 +28,14 @@ use crate::ext::CharExt;
 /// # Implementation
 /// `#[inline(always)]` should be restricted to functions called often in the
 /// main `Scanner`/`Grammar` recursions, where the benefit of inlining is completely certain.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Hide `raw` from users to promote orthogonality.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deref)]
 pub struct Tape<'a, T> {
-    pub raw: &'a [T],
+    #[deref]
+    raw: &'a [T],
+
     pub pos: usize,
-}
-
-impl<'a, T> Index<usize> for Tape<'a, T> {
-    type Output = T;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.raw[index]
-    }
-}
-
-impl<'a, T: Copy> Iterator for Tape<'a, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let elem = *self.raw.get(self.pos)?;
-        self.pos += 1;
-        Some(elem)
-    }
 }
 
 impl<'a, T> Tape<'a, T> {
@@ -57,9 +44,10 @@ impl<'a, T> Tape<'a, T> {
         Self { raw, pos: 0 }
     }
 
+    /// Returns a subslice over the original slice from the current position.
     #[inline(always)]
-    pub fn slice(self, range: Range<usize>) -> &'a [T] {
-        &self.raw[range]
+    pub fn from_pos(self) -> &'a [T] {
+        &self.raw[self.pos..self.raw.len()]
     }
 
     /// Advances the current position by 1 element.

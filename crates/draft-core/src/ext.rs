@@ -1,28 +1,58 @@
 use std::str::Utf8Error;
 
-const IS_FILE_WS: u8 = 1 << 0; // 0000_0001
-const IS_KEY_PART: u8 = 1 << 1; // 0000_0010
-const FLAG_BITS: u8 = 2;
+use bitflags::Flags;
 
-/// Exactly 256 bytes—one for every possible u8 value.
+bitflags::bitflags! {
+    #[derive(Copy, Clone)]
+    struct CharType: u8 {
+        const IS_KEY_PART = 0b0001;
+        const IS_KEY_START = 0b0010;
+        const IS_FILE_WS  = 0b0100;
+        // remaining bits are for length
+    }
+}
+
+impl CharType {
+    #[inline]
+    const fn with_len(len: u8) -> u8 {
+        bits() | (len << Self::FLAGS.len())
+    }
+}
+
+/// One byte for every possible `u8` value.
 const CHAR_TABLE: [u8; 256] = {
     let mut table = [0u8; 256];
-    table[b' ' as usize] = IS_FILE_WS | (1 << FLAG_BITS);
-    table[b'\t' as usize] = IS_FILE_WS | (4 << FLAG_BITS);
-    table[b'\r' as usize] = IS_FILE_WS | (1 << FLAG_BITS);
+    table[b' ' as usize] = CharType::IS_FILE_WS.with_len(1);
+    table[b'\t' as usize] = CharType::IS_FILE_WS.with_len(4);
+    table[b'\r' as usize] = CharType::IS_FILE_WS.with_len(1);
 
-    let bytes = concat!(
+    // Get starts
+    let starts = concat!(
         "abcdefghijklmnopqrstuvwxyz",
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-        "0123456789",
-        "-_.$"
+        "$",
     )
     .as_bytes();
     let mut i = 0;
-    while i < bytes.len() {
-        table[bytes[i] as usize] = IS_KEY_PART;
+    while i < starts.len() {
+        table[starts[i] as usize] = CharType::IS_KEY_START.bits();
         i += 1;
     }
+
+    // Get parts
+    let parts = concat!(
+        "abcdefghijklmnopqrstuvwxyz",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "0123456789",
+        "-.$",
+    )
+    .as_bytes();
+    let mut i = 0;
+    while i < parts.len() {
+        table[parts[i] as usize] = CharType::IS_KEY_PART.bits();
+        i += 1;
+    }
+
     table
 };
 
@@ -48,27 +78,38 @@ pub trait CharExt {
     /// Returns true if this character may be part of an unescaped (without `""`) key
     /// in object notation.
     ///
+    /// Keys must start with a letter or dollar sign.
+    fn is_file_key_start(&self) -> bool;
+
+    /// Returns true if this character may be part of an unescaped (without `""`) key
+    /// in object notation.
+    ///
     /// Letters, digits, dashes, dots, and dollar signs are accepted.
     /// Kebab case is used, with dots used to denote scope and dollar signs
-    /// used to denote special keys. Keys must start with a letter or dollar sign.
+    /// used to denote special keys.
     fn is_file_key_part(&self) -> bool;
 }
 
 impl CharExt for u8 {
-    #[inline(always)]
+    #[inline]
     fn is_file_key_part(&self) -> bool {
-        (CHAR_TABLE[*self as usize] & IS_KEY_PART) != 0
+        (CHAR_TABLE[*self as usize] & CharType::IS_KEY_PART.bits()) != 0
     }
 
-    #[inline(always)]
+    #[inline]
     fn is_file_ws(&self) -> bool {
-        (CHAR_TABLE[*self as usize] & IS_FILE_WS) != 0
+        (CHAR_TABLE[*self as usize] & CharType::IS_FILE_WS.bits()) != 0
     }
 
-    #[inline(always)]
+    #[inline]
+    fn is_file_key_start(&self) -> bool {
+        (CHAR_TABLE[*self as usize] & CharType::IS_KEY_START.bits()) != 0
+    }
+
+    #[inline]
     fn file_ws_len(&self) -> u8 {
-        // Shift the stored length value back down
-        CHAR_TABLE[*self as usize] >> FLAG_BITS
+        // shift the stored length value back down
+        CHAR_TABLE[*self as usize] >> CharType::FLAGS.len()
     }
 }
 
@@ -77,11 +118,10 @@ pub trait SliceExt {
     fn trim_file_ws(&self) -> Self;
 
     /// Attempts to convert this slice to a UTF-8 string with the same contents.
-    fn to_utf8(&self) -> Result<String, Utf8Error>;
+    fn to_utf8(&self) -> Result<&str, Utf8Error>;
 }
 
 impl SliceExt for &[u8] {
-    #[inline(always)]
     fn trim_file_ws(&self) -> Self {
         let mut bytes = *self;
         while let [first, rest @ ..] = bytes {
@@ -103,7 +143,8 @@ impl SliceExt for &[u8] {
         bytes
     }
 
-    fn to_utf8(&self) -> Result<String, Utf8Error> {
-        String::from_utf8(self.to_vec()).map_err(|e| e.utf8_error())
+    #[inline]
+    fn to_utf8(&self) -> Result<&str, Utf8Error> {
+        str::from_utf8(self).map_err(|e| e.utf8_error())
     }
 }

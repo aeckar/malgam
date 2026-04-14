@@ -63,17 +63,18 @@ full = [
     "serde",
 ]
 
-parse-markup = ["dep:strum"]
+parse-markup = ["parse-data", "parse-expressions", "dep:strum"]
 parse-data = ["dep:lexical-core"]
 parse-expressions = ["parse-data"]
 formatter = []
 to-html = [
     "parse-markup",
+    "macros",
     "dep:html-escape",
     "dep:mime_guess",
     "dep:video-url-validator",
 ]
-to-markdown = ["parse-markup"]
+to-markdown = ["macros", "parse-markup"]
 from-markdown = ["parse-markup", "dep:pulldown-cmark"]
 macros = ["dep:boa_engine", "dep:csv"]
 serde = ["parse-data", "dep:serde", "dep:serde_json"]
