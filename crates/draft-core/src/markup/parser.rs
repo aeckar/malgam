@@ -2,13 +2,12 @@ use std::vec;
 
 use crate::{
     markup::{
-        lex::{ListItemKind, Token, TokenKind as token, TokenSpan},
+        lex::{ListItemKind, ListItemPos, Token, TokenKind as token, TokenSpan},
         parse::{
             AstNode, AstNode as node, Handler, NodeKind, NodeMetadata as meta, Result,
             RuleKind as rule, TokenStream,
         },
-    },
-    prelude::*,
+    }, prelude::*, unpack, unpack_token
 };
 
 /// Since a zero-length input is also accepted, a match (even if partial)
@@ -338,35 +337,53 @@ impl<'a> Grammar {
             children_a.push(child_a);
             tape = jump;
         }
-        if children_a.is_empty() {
-            return None;
-        }
+        unpack!(children_a.last()?.meta, meta::ListItem { kind, .. });
+        
         let a = node::branch(rule::None, children_a, meta::None);
         Some((node::branch(rule::List, vec![a], meta::None), tape))
     });
 
     pub fn list_item(mut tape: TokenStream<'a>, parent: &AstNode<'a>) -> Result<'a> {
         let mut a = try_token!(tape, ListItemMarker)?;
-        if let Some(Token::ListItemMarker {
-            indent: indent_a,
-            kind: meta_a,
-        }) = a.kind.token()
-        {
-            let Token::ListItemMarker { kind: meta, .. } = parent
-                .children
-                .iter()
-                .rev()
-                .map(|node| node.kind.token().unwrap())
-                .find(|token| {
-                    matches!(token,
+        unpack_token!(
+            a,
+            ListItemMarker {
+                indent: indent_a,
+                kind: kind_a
+            }
+        );
+        let kind_a = if kind_a == ListItemKind::Continuation {
+            unpack_token!(
+                parent.children.iter().rev().find(|node| {
+                    matches!(node.kind.token().unwrap(),
                         Token::ListItemMarker { indent, kind }
-                        if *indent == indent_a && meta_a != ListItemKind::Continuation
+                        if indent == indent_a && kind != ListItemKind::Continuation
                     )
-                })?
-            else {
-                unreachable!("Expected list item marker")
+                })?,
+                ListItemMarker { kind, .. }
+            );
+            kind
+        } else {
+            kind_a
+        };
+        if parent.children.is_empty() {
+            let mut pos = ListItemPos::Any.bits();
+            unpack_token!(
+                parent.children.last().unwrap(),
+                ListItemMarker { indent, .. }
+            );
+            if indent > indent_a {
+                pos |= ListItemPos::First.bits();
+            }
+            a.meta = meta::ListItem {
+                kind: kind_a,
+                pos: ListItemPos::from_bits(pos).unwrap(),
             };
-            a.meta = meta::ListItemKind(meta)
+        } else {
+            a.meta = meta::ListItem {
+                kind: kind_a,
+                pos: ListItemPos::Any,
+            };
         }
         let (b, tape) = Self::paragraph(tape)?;
         Some((node::branch(rule::ListItem, vec![a, b], meta::None), tape))

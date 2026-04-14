@@ -1,8 +1,20 @@
 use std::sync::OnceLock;
 
+use bitflags::bitflags;
 use strum::EnumDiscriminants;
 
 use crate::markup::parse::{RuleKind, SymbolKind};
+
+#[macro_export]
+macro_rules! unpack_token {
+    ($instance:expr, $variant:ident { $($field:ident $(: $alias:ident)?),* $(, ..)? }) => {
+        let $crate::markup::lex::Token::$variant {
+            $($field $(: $alias)?),* , ..
+        } = $instance.kind.token().unwrap() else {
+            panic!("Unpack failed: Expected {}", stringify!($variant));
+        };
+    };
+}
 
 static FORMAT_VARIANTS: OnceLock<Vec<InlineFormat>> = OnceLock::new();
 
@@ -77,6 +89,15 @@ impl CheckboxType {
     }
 }
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ListItemPos: u8 {
+        const Any = 0b0000;
+        const First = 0b0001;
+        const Last = 0b0010;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListItemKind {
     Unordered,
@@ -112,10 +133,10 @@ impl ListItemKind {
                 Numbering::UpperNumeral => "ol type='I' class='dt-numbering'",
             },
             Self::Checkbox(ty) => match ty {
-                CheckboxType::Empty =>"ol class='dt-checkbox--empty'",
+                CheckboxType::Empty => "ol class='dt-checkbox--empty'",
                 CheckboxType::Filled => "ol class='dt-checkbox--filled'",
                 CheckboxType::Toggle => "ol class='det-checkbox--toggle'",
-            }
+            },
             Self::Continuation => panic!("Cannot resolve open tag"),
         }
     }

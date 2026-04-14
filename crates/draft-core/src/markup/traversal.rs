@@ -3,11 +3,10 @@ use std::sync::OnceLock;
 use indoc::formatdoc;
 use pastey::paste;
 
-use crate::markup::{
-    lex::{InlineFormat as fmt, Token},
+use crate::{markup::{
+    lex::{InlineFormat as fmt},
     parse::{AstNode, SymbolKind},
-    visit::ListItemKind,
-};
+}, unpack_token};
 
 // todo move all this to utils
 
@@ -63,13 +62,7 @@ macro_rules! emit {
     };
 }
 
-macro_rules! unpack {
-    ($instance:expr, $variant:ident { $($field:ident),* }) => {
-        let Token::$variant { $($field),* , .. } = $instance.kind.token().unwrap() else {
-            panic!("Unpack failed: Expected {}", stringify!($variant));
-        };
-    };
-}
+
 
 pub type Visitor<'a, T: AstVisitor<'a>> = fn(&mut T, node: &AstNode<'a>);
 
@@ -206,14 +199,14 @@ impl<'a> AstVisitor<'a> for AstToHtml {
     visitor!(markup, |model: &mut AstToHtml, node| {});
 
     visitor!(heading, |model: &mut AstToHtml, node| {
-        unpack!(node[0], HeadingMarker { depth });
+        unpack_token!(node[0], HeadingMarker { depth });
         emit!(model, "<h{depth}>");
         model.visit_line(&node[1]);
         emit!(model, "</h{depth}>");
     });
 
     visitor!(format, |model: &mut AstToHtml, node| {
-        unpack!(node[0], InlineFormat { ty });
+        unpack_token!(node[0], InlineFormat { ty });
         match ty {
             fmt::Bold => {
                 emit!(model, "<b class='dt-bold'>");

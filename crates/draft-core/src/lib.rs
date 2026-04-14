@@ -1,7 +1,7 @@
 //! `#[inline(always)]` should not be used except under extraordinary cirumstances (see `Tape`).
 //! One should mark small functions that resolve to non-block expressions with `#[inline]`
 //! to enable inlining from external crates.
-//! 
+//!
 //! When applicable, functions should be marked `const`.
 #![feature(macro_metavar_expr)]
 mod compile;
@@ -25,4 +25,15 @@ pub mod fmt;
 
 pub mod prelude {
     pub use super::{compile::*, ext::*, tape::*};
+}
+
+#[macro_export]
+macro_rules! unpack {
+    ($instance:expr, $variant:ty { $($field:ident $(: $alias:ident)?),* $(, ..)? }) => {
+        let $variant {
+            $($field $(: $alias)?),* , ..
+        } = $instance else {
+            panic!("Unpack failed: Expected {}", stringify!($variant));
+        };
+    };
 }

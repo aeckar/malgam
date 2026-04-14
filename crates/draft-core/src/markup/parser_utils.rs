@@ -2,7 +2,7 @@ use derive_more::derive::Deref;
 
 use crate::{
     markup::{
-        lex::{ListItemKind, Token, TokenKind, TokenSpan},
+        lex::{ListItemKind, ListItemPos, Token, TokenKind, TokenSpan},
         parse::NodeMetadata as meta,
     },
     tape::Tape,
@@ -89,7 +89,7 @@ impl<'a> SymbolKind for NodeKind<'a> {
 pub enum NodeMetadata {
     Choice(u8),
     IsPresent(bool),
-    ListItemKind(ListItemKind),
+    ListItem { kind: ListItemKind, pos: ListItemPos },
     None,
 }
 
@@ -131,7 +131,7 @@ impl<'a> AstNode<'a> {
         }
         Self {
             start: children[0].start,
-            end: children[children.len() - 1].end,
+            end: children.last().unwrap().end,
             parent: None,
             children,
             meta,
@@ -151,7 +151,7 @@ impl<'a> AstNode<'a> {
         }
         Self {
             start: children[0].start,
-            end: children[children.len() - 1].end,
+            end: children.last().unwrap().end,
             parent: None,
             children,
             meta,
