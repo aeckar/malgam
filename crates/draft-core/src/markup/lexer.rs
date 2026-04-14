@@ -1,10 +1,14 @@
 use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
-use crate::markup::config::{DynConf, StaticConf};
-use crate::markup::lexer_utils::{CheckboxType, InlineFormat as fmt, Numbering, Token, TokenSpan};
-use crate::prelude::*;
-use crate::tape::Tape;
+use crate::{
+    markup::{
+        config::{DynConf, StaticConf},
+        lex::{CheckboxType, InlineFormat as fmt, Numbering, Token, TokenSpan},
+    },
+    prelude::*,
+    tape::Tape,
+};
 
 #[derive(Error, Debug)]
 pub enum LexerError {

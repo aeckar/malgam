@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use strum::{EnumDiscriminants, EnumIter, IntoEnumIterator};
 
-use crate::markup::{parse::RuleKind, parser_utils::SymbolKind};
+use crate::markup::parse::{RuleKind, SymbolKind};
 
 static FORMAT_VARIANTS: OnceLock<Vec<InlineFormat>> = OnceLock::new();
 

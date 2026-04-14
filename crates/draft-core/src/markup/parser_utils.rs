@@ -1,8 +1,16 @@
 use derive_more::derive::Deref;
 
-use crate::markup::lexer_utils::{Token, TokenKind, TokenSpan};
-use crate::markup::parse::SpanTape;
-use crate::markup::parser_utils::NodeMetadata as meta;
+use crate::{
+    markup::{
+        lex::{Token, TokenKind, TokenSpan},
+        parse::NodeMetadata as meta,
+    },
+    tape::Tape,
+};
+
+pub type TokenStream<'a> = Tape<'a, TokenSpan<'a>>;
+pub type Result<'a> = Option<(AstNode<'a>, TokenStream<'a>)>;
+pub type Handler<'a> = fn(TokenStream<'a>) -> Option<(AstNode<'a>, TokenStream<'a>)>;
 
 /// A token or parser rule that can be matched to some slice of the
 /// list of tokens produced after lexing.
@@ -167,7 +175,7 @@ impl<'a> AstNode<'a> {
     /// incrementing `tape.pos` on success.
     ///
     /// Panics if the tape is exhausted.
-    pub fn try_token(token: TokenKind, tape: &mut SpanTape<'a>) -> Option<Self> {
+    pub fn try_token(token: TokenKind, tape: &mut TokenStream<'a>) -> Option<Self> {
         if tape.peek().is_none_or(|span| span.token.kind() != token) {
             return None;
         }

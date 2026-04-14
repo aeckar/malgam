@@ -1,15 +1,14 @@
 use std::vec;
 
-use crate::markup::lex::Token;
-use crate::markup::lexer_utils::TokenKind as token;
-use crate::markup::parse::AstNode;
-use crate::markup::parse::NodeKind;
-use crate::markup::parser_utils::NodeMetadata as meta;
-use crate::markup::parser_utils::RuleKind as rule;
 use crate::{
-    compile::Compile,
-    compile::{lexer_utils::TokenSpan, parser_utils::AstNode as node},
-    tape::Tape,
+    markup::{
+        lex::{Token, TokenKind as token, TokenSpan},
+        parse::{
+            AstNode, AstNode as node, Handler, NodeKind, NodeMetadata as meta, Result,
+            RuleKind as rule, TokenStream,
+        },
+    },
+    prelude::*,
 };
 
 /// Since a zero-length input is also accepted, a match (even if partial)
@@ -120,15 +119,11 @@ macro_rules! optional_token {
 macro_rules! rule {
     ($name:ident, $body:expr $(,)?) => {
         #[inline(always)]
-        pub fn $name(tape: SpanTape<'a>) -> Result<'a> {
+        pub fn $name(tape: TokenStream<'a>) -> Result<'a> {
             ($body as Handler<'a>)(tape)
         }
     };
 }
-
-pub type SpanTape<'a> = Tape<'a, TokenSpan<'a>>;
-pub type Result<'a> = Option<(node<'a>, SpanTape<'a>)>;
-pub type Handler<'a> = fn(SpanTape<'a>) -> Option<(node<'a>, SpanTape<'a>)>;
 
 /// Used to assemble the AST according to the following grammar:
 /// ```ebnf
@@ -345,7 +340,7 @@ impl<'a> Grammar {
         Some((node::branch(rule::List, vec![a], meta::None), tape))
     });
 
-    pub fn list_item(mut tape: SpanTape<'a>, parent: AstNode<'a>) -> Result<'a> {
+    pub fn list_item(mut tape: TokenStream<'a>, parent: AstNode<'a>) -> Result<'a> {
         let (_, res) = token_options![tape; ListItemMarker,NumberedItemMarker,Checkbox];
         let (choice, child) = res?;
         let a = node::branch(rule::None, vec![child], choice);
