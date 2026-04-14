@@ -1,0 +1,25 @@
+{
+  "name": "draft",
+  "displayName": "Draft Markup Language Support",
+  "description": "\"custom markup lang\"",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.115.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "draft",
+      "aliases": ["Draft", "draft"],
+      "extensions": [".dt",".don"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "draft",
+      "scopeName": "text.draft",
+      "path": "./syntaxes/draft.tmLanguage.json"
+    }]
+  }
+}
