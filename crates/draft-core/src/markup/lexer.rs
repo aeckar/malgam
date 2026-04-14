@@ -449,7 +449,6 @@ impl<'a> Scanner<'a> {
     #[must_use]
     fn handle_dot(&mut self, tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if tape.is_cur_prefix() {
-            //tle: item markers must be adjacent to be of same list
             self.emit_inplace(
                 tape,
                 Token::ContinuationMarker {

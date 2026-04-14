@@ -1,6 +1,5 @@
-//! todo explain x vs x_utils
-//! 
-//! todo #inline for external inline of approp funcs' (can resolve to non-block expr)
+//! Major compiler passes are split between `X.rs` and `X_utils.rs` files.
+//! The first contains the primary logic, whereas the latter contains everything else. 
 //! 
 //! Modules should be imported internally using re-export.
 pub mod config;

@@ -5,7 +5,7 @@ use crate::{
         lex::{Token, TokenKind as token, TokenSpan},
         parse::{
             AstNode, AstNode as node, Handler, NodeKind, NodeMetadata as meta, Result,
-            RuleKind as rule, TokenStream,
+            RuleKind as rule, SymbolKind, TokenStream,
         },
     },
     prelude::*,
@@ -133,15 +133,18 @@ macro_rules! rule {
 ///     | HorizontalRule
 ///     | CodeBlock
 ///     | MathBlock
-///     | paragraph
 ///     | list
+///     | paragraph
 ///     | heading
 ///     | lineQuote
 ///     | blockQuote
 /// heading := HeadingMarker
 ///     & line
 ///     & Newline
-/// paragraph := (Newline | lineElement)+   # stop at Newline & Newline
+///
+/// # stops at Newline & Newline
+/// # consumes continuations that whose bullet type could not be inferred
+/// paragraph := ContinuationMarker? & (Newline | lineElement)+
 ///
 /// line := lineElement+
 ///     & Newline
@@ -166,6 +169,7 @@ macro_rules! rule {
 ///     & topLevelElement+
 ///     & BlockQuoteClose
 ///
+/// # for clarity, no empty lines between list items
 /// list := listItem & (Newline* & listItem)*   # may be multiple lists, split during second pass
 /// listItem := (ListItemMarker | NumberedItemMarker | Checkbox) & paragraph
 ///
@@ -328,12 +332,9 @@ impl<'a> Grammar {
     });
 
     rule!(list, |mut tape| {
-        if !tape.has_next() {
-            
-        }
         let mut children_a = vec![];
-        let node = node::new(rule::List, vec![], tape., meta)
-        while let Some((child_a, jump)) = Self::list_item(tape) {
+        let node = node::new(rule::List, vec![], tape.peek()?.start, meta::None);
+        while let Some((child_a, jump)) = Self::list_item(tape, &node) {
             children_a.push(child_a);
             tape = jump;
         }
@@ -344,9 +345,16 @@ impl<'a> Grammar {
         Some((node::branch(rule::List, vec![a], meta::None), tape))
     });
 
-    pub fn list_item(mut tape: TokenStream<'a>, parent: AstNode<'a>) -> Result<'a> {
-        let (_, res) = token_options![tape; ListItemMarker,NumberedItemMarker,Checkbox];
+    pub fn list_item(mut tape: TokenStream<'a>, parent: &AstNode<'a>) -> Result<'a> {
+        let (_, res) =
+            token_options![tape; ContinuationMarker, ListItemMarker, NumberedItemMarker, Checkbox];
         let (choice, child) = res?;
+        if child.kind.as_token_kind().unwrap() == token::ContinuationMarker {
+            let Token::ContinuationMarker { indent } = child.kind.token().unwrap() else {
+                unreachable!()
+            };
+            parent.chil
+        }
         let a = node::branch(rule::None, vec![child], choice);
         let (b, tape) = Self::paragraph(tape)?;
         Some((node::branch(rule::ListItem, vec![a, b], meta::None), tape))

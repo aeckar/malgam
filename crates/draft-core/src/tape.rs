@@ -51,12 +51,6 @@ impl<'a, T: Copy> Iterator for Tape<'a, T> {
 }
 
 impl<'a, T> Tape<'a, T> {
-    #[must_use]
-    #[inline(always)]
-    pub const fn has_next(self) -> bool {
-        self.pos >= self.raw.len()
-    }
-
     #[inline]
     pub const fn new(raw: &'a [T]) -> Self {
         Self { raw, pos: 0 }

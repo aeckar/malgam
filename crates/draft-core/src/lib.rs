@@ -1,3 +1,8 @@
+//! `#[inline(always)]` should not be used except under extraordinary cirumstances (see `Tape`).
+//! One should mark small functions that resolve to non-block expressions with `#[inline]`
+//! to enable inlining from external crates.
+//! 
+//! When applicable, functions should be marked `const`.
 #![feature(macro_metavar_expr)]
 mod compile;
 mod ext;
@@ -19,7 +24,5 @@ pub mod macros;
 pub mod fmt;
 
 pub mod prelude {
-    pub use super::compile::*;
-    pub use super::ext::*;
-    pub use super::tape::*;
+    pub use super::{compile::*, ext::*, tape::*};
 }
