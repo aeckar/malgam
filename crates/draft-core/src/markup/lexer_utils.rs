@@ -70,24 +70,24 @@ bitflags::bitflags! {
     /// The type of inline format marker.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct InlineFormat: u8 {
-        const Bold = 0b0000_0001;
-        const Italic = 0b0000_0010;
-        const Strikethrough = 0b0000_0100;
-        const Underline = 0b000_1000;
-        const Highlight = 0b0001_0000;
+        const BOLD = 0b0000_0001;
+        const ITALIC = 0b0000_0010;
+        const STRIKETHROUGH = 0b0000_0100;
+        const UNDERLINE = 0b000_1000;
+        const HIGHLIGHT = 0b0001_0000;
+
+        const BOLD_ITALIC = BOLD | ITALIC;
     }
 }
 
 impl InlineFormat {
-    pub const BOLD_ITALIC: u8 = Self::Bold.bits() | Self::Italic.bits();
-
     /// Returns the length of the character cluster that denotes the given flag or bitmask.
     #[inline]
-    pub const fn len(mask: u8) -> usize {
+    pub const fn len(self) -> usize {
         if mask == Self::BOLD_ITALIC {
             return 3;
         }
-        if mask == Self::Bold.bits() {
+        if mask == Self::BOLD.bits() {
             return 2;
         }
         return 1;

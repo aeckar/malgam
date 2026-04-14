@@ -3,6 +3,10 @@
 //! to enable inlining from external crates.
 //!
 //! When applicable, functions should be marked `const`.
+//! 
+//! Import alias should only be used locally for readability, unless an `enum`
+//! is used many times in the same file. Use of star import, except for `use crate::prelude::*`,
+//! is discouraged.
 #![feature(macro_metavar_expr)]
 mod compile;
 mod ext;

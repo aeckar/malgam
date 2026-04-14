@@ -171,8 +171,8 @@ macro_rules! rule {
 ///     & BlockQuoteClose
 ///
 /// # for clarity, no empty lines between list items
-/// list := listItem & (Newline* & listItem)*   # may be multiple lists, split during second pass
-/// listItem := (ListItemMarker | NumberedItemMarker | Checkbox) & paragraph
+/// list := listItem+
+/// listItem := (ListItemMarker | NumberedItemMarker | Checkbox) & line
 ///
 /// macro := MacroHandle
 ///     & MacroArgs?
@@ -339,8 +339,13 @@ impl<'a> Grammar {
             children_a.push(child_a);
             tape = jump;
         }
-        unpack!(children_a.last()?.meta, meta::ListItem { kind, .. });
+        let prev = children_a.last_mut()?;
+        unpack!(prev.meta, meta::ListItem { kind, pos });
+
+        // mark last item
+        let pos = ListItemPos::from_bits(pos.bits() | ListItemPos::Last.bits()).unwrap();
         
+        prev.meta = meta::ListItem { kind, pos };
         let a = node::branch(rule::None, children_a, meta::None);
         Some((node::branch(rule::List, vec![a], meta::None), tape))
     });
@@ -374,27 +379,27 @@ impl<'a> Grammar {
                 pos: ListItemPos::First,
             };
         } else {
-            let mut pos = ListItemPos::Any.bits();
+            let mut pos = ListItemPos::Any;
             let prev = parent.children.last_mut().unwrap();
             unpack_token!(
                 prev,
                 ListItemMarker {
                     indent: prev_indent,
-                    ..
+                    pos: prev_pos,
                 }
             );
             if prev_indent > indent_a {
-                pos |= ListItemPos::First.bits();
+                pos |= ListItemPos::First;
             } else if prev_indent < indent_a {
-                unpack!(prev.meta, meta::ListItem { kind: prev_kind, .. });
-                prev.meta = meta::ListItem { kind: prev_kind, pos: () }
+                unpack!(prev.meta, meta::ListItem { kind, pos });
+                prev.meta = meta::ListItem { kind, pos | ListItemPos::Last };
             }
             a.meta = meta::ListItem {
                 kind: kind_a,
                 pos: ListItemPos::from_bits(pos).unwrap(),
             };
         }
-        let (b, tape) = Self::paragraph(tape)?;
+        let (b, tape) = Self::line(tape)?;
         Some((node::branch(rule::ListItem, vec![a, b], meta::None), tape))
     }
 

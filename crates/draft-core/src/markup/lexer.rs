@@ -5,7 +5,7 @@ use crate::{
     markup::{
         config::{DynConf, StaticConf},
         lex::{
-            CheckboxType, InlineFormat as fmt, ListItemKind as item_meta, Numbering, Token,
+            CheckboxType, InlineFormat, ListItemKind, Numbering, Token,
             TokenSpan,
         },
     },
@@ -89,9 +89,9 @@ impl<'a> Lexer<'a> {
                 b'-' => scan.handle_dash(tape),
                 b'.' => scan.handle_dot(tape),
                 b'*' => scan.handle_star(tape),
-                b'_' => scan.handle_pair(tape, fmt::Underline.bits()),
-                b'|' => scan.handle_pair(tape, fmt::Highlight.bits()),
-                b'~' => scan.handle_pair(tape, fmt::Strikethrough.bits()),
+                b'_' => scan.handle_fmt(tape, InlineFormat::UNDERLINE),
+                b'|' => scan.handle_fmt(tape, InlineFormat::HIGHLIGHT),
+                b'~' => scan.handle_fmt(tape, InlineFormat::STRIKETHROUGH),
                 b'[' => scan.handle_obrac(tape),
                 b']' => scan.handle_cbrac(tape),
                 b'=' => scan.handle_equals(tape),
@@ -205,7 +205,7 @@ struct Scanner<'a> {
     /// have been resolved but not yet paired with a closer.
     ///
     /// The first element of each pair is the flank type mask.
-    open_fmts: Vec<(u8, usize)>,
+    open_fmts: Vec<(InlineFormat, usize)>,
 
     /// A stack of positions of the first character of block quote openers that
     /// have been resolved but not yet paired with a closer.
@@ -243,27 +243,27 @@ impl<'a> Scanner<'a> {
     /// If `None` is not returned, the length of `self.unclosed_pairs` is always modified
     /// and the cursor of the returned tape is left at the final character of the cluster.
     #[must_use]
-    fn handle_pair(&mut self, mut tape: Tape<'a, u8>, mask: u8) -> Option<Tape<'a, u8>> {
+    fn handle_fmt(&mut self, mut tape: Tape<'a, u8>, fmt: InlineFormat) -> Option<Tape<'a, u8>> {
         let start = tape.pos;
-        let len = fmt::len(mask);
+        let len = fmt.len();
         if tape.is_l_clear(start) && !tape.is_r_clear(tape.pos) {
             // open
             // lack of lookahead prevents bottleneck
-            self.open_fmts.push((mask, start));
+            self.open_fmts.push((fmt, start));
             tape.pos += len - 1;
             return Some(tape);
         } else if tape.is_r_clear(start)
-            && self.open_fmts.last().is_some_and(|(t, _)| *t & mask != 0)
+            && self.open_fmts.last().is_some_and(|(last, _)| last.intersects(fmt))
         {
             // close
             let (open_mask, open_pos) = self.open_fmts.pop().unwrap();
-            let open_len = fmt::len(open_mask);
+            let open_len = InlineFormat::len(open_mask);
             // unsorted tokens don't matter since tokens are sorted after Pass 1
-            if (mask & open_mask).ilog2() == 1 {
+            if (fmt & open_mask).ilog2() == 1 {
                 // basic pair
                 self.emit(
                     Token::InlineFormat {
-                        ty: fmt::from_bits(open_mask).unwrap(),
+                        ty: open_mask,
                         twin_pos: start,
                     },
                     open_pos,
@@ -272,17 +272,17 @@ impl<'a> Scanner<'a> {
                 self.emit_inplace(
                     tape,
                     Token::InlineFormat {
-                        ty: fmt::from_bits(open_mask).unwrap(),
+                        ty: open_mask,
                         twin_pos: open_pos,
                     },
                     open_len,
                 );
                 tape.pos += open_len;
-            } else if mask == fmt::BOLD_ITALIC && open_mask == fmt::BOLD_ITALIC {
+            } else if fmt == InlineFormat::BOLD_ITALIC && open_mask == InlineFormat::BOLD_ITALIC {
                 // stop at next format marker appended to this cluster
                 self.emit(
                     Token::InlineFormat {
-                        ty: fmt::Bold,
+                        ty: InlineFormat::BOLD,
                         twin_pos: start + 1,
                     },
                     open_pos,
@@ -290,7 +290,7 @@ impl<'a> Scanner<'a> {
                 );
                 self.emit(
                     Token::InlineFormat {
-                        ty: fmt::Italic,
+                        ty: InlineFormat::ITALIC,
                         twin_pos: start,
                     },
                     open_pos + 2,
@@ -299,26 +299,26 @@ impl<'a> Scanner<'a> {
                 self.emit_inplace(
                     tape,
                     Token::InlineFormat {
-                        ty: fmt::Italic,
+                        ty: InlineFormat::ITALIC,
                         twin_pos: open_pos + 2,
                     },
                     1,
                 );
                 self.emit(
                     Token::InlineFormat {
-                        ty: fmt::Bold,
+                        ty: InlineFormat::BOLD,
                         twin_pos: open_pos,
                     },
                     start + 1,
                     start + 3,
                 );
             } else {
-                // open_mask == fmt::BOLD_ITALIC
-                if mask == fmt::Bold.bits() {
-                    self.open_fmts.push((fmt::Italic.bits(), open_pos));
+                // open_mask == InlineFormat::BOLD_ITALIC
+                if fmt == InlineFormat::BOLD {
+                    self.open_fmts.push((InlineFormat::ITALIC, open_pos));
                     self.emit(
                         Token::InlineFormat {
-                            ty: fmt::Bold,
+                            ty: InlineFormat::BOLD,
                             twin_pos: start,
                         },
                         open_pos + 1,
@@ -327,16 +327,16 @@ impl<'a> Scanner<'a> {
                     self.emit_inplace(
                         tape,
                         Token::InlineFormat {
-                            ty: fmt::Bold,
+                            ty: InlineFormat::BOLD,
                             twin_pos: open_pos + 1,
                         },
                         2,
                     );
                 } else {
-                    self.open_fmts.push((fmt::Bold.bits(), open_pos));
+                    self.open_fmts.push((InlineFormat::BOLD, open_pos));
                     self.emit(
                         Token::InlineFormat {
-                            ty: fmt::Italic,
+                            ty: InlineFormat::ITALIC,
                             twin_pos: start,
                         },
                         open_pos + 2,
@@ -345,7 +345,7 @@ impl<'a> Scanner<'a> {
                     self.emit_inplace(
                         tape,
                         Token::InlineFormat {
-                            ty: fmt::Italic,
+                            ty: InlineFormat::ITALIC,
                             twin_pos: open_pos + 2,
                         },
                         1,
@@ -452,7 +452,7 @@ impl<'a> Scanner<'a> {
                 tape,
                 Token::ListItemMarker {
                     indent: tape.count_indent(),
-                    kind: item_meta::Continuation,
+                    kind: ListItemKind::Continuation,
                 },
                 1,
             );
@@ -466,7 +466,7 @@ impl<'a> Scanner<'a> {
         self.emit(
             Token::ListItemMarker {
                 indent: tape.count_indent(),
-                kind: item_meta::Numbered(Numbering::from_marker(prev.unwrap())?),
+                kind: ListItemKind::Numbered(Numbering::from_marker(prev.unwrap())?),
             },
             tape.pos - 1,
             tape.pos + 1,
@@ -493,7 +493,7 @@ impl<'a> Scanner<'a> {
                 tape,
                 Token::ListItemMarker {
                     indent: tape.count_indent(),
-                    kind: item_meta::Checkbox(CheckboxType::from_marker(marker)?),
+                    kind: ListItemKind::Checkbox(CheckboxType::from_marker(marker)?),
                 },
                 2,
             );
@@ -514,7 +514,7 @@ impl<'a> Scanner<'a> {
             tape,
             Token::ListItemMarker {
                 indent: tape.count_indent(),
-                kind: item_meta::Unordered,
+                kind: ListItemKind::Unordered,
             },
             1,
         );
@@ -647,12 +647,12 @@ impl<'a> Scanner<'a> {
     #[must_use]
     fn handle_star(&mut self, tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         if tape.is_at(b"***") {
-            self.handle_pair(tape, fmt::Bold.bits() | fmt::Italic.bits())
+            self.handle_fmt(tape, InlineFormat::BOLD | InlineFormat::ITALIC)
         } else if tape.is_at(b"**") {
-            self.handle_pair(tape, fmt::Bold.bits())
+            self.handle_fmt(tape, InlineFormat::BOLD)
         } else {
             // try for '*'
-            self.handle_pair(tape, fmt::Italic.bits())
+            self.handle_fmt(tape, InlineFormat::ITALIC)
         }
     }
 
