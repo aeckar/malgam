@@ -2,7 +2,7 @@ use derive_more::derive::Deref;
 
 use crate::{
     markup::{
-        lex::{CheckboxType, Numbering, Token, TokenKind, TokenSpan},
+        lex::{ListItemKind, Token, TokenKind, TokenSpan},
         parse::NodeMetadata as meta,
     },
     tape::Tape,
@@ -81,95 +81,6 @@ impl<'a> SymbolKind for NodeKind<'a> {
         match self {
             Self::Rule(rule) => Some(rule),
             Self::Token(_) => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ListItemKind {
-    Bullet,
-
-    // Numbering
-    Number,
-    Lower,
-    Upper,
-    LowerNumeral,
-    UpperNumeral,
-
-    // Checkbox
-    EmptyBox,
-    FilledBox,
-    ToggleBox,
-}
-
-impl ListItemKind {
-    /// Returns true if both kinds of list items can reside within the same list.
-    #[inline]
-    pub fn is_sibling(self, other: Self) -> bool {
-        if self == Self::Bullet {
-            return other == Self::Bullet;
-        }
-        if self.is_numbering() {
-            return self == other;
-        }
-        return other.is_checkbox();
-    }
-
-    #[inline]
-    pub const fn is_numbering(self) -> bool {
-        matches!(
-            self,
-            Self::Number | Self::Lower | Self::Upper | Self::LowerNumeral | Self::UpperNumeral
-        )
-    }
-
-    #[inline]
-    pub const fn is_checkbox(self) -> bool {
-        matches!(self, Self::EmptyBox | Self::FilledBox | Self::ToggleBox)
-    }
-
-    #[inline]
-    pub fn from_token(token: Token) -> Self {
-        match token {
-            Token::ListItemMarker { .. } => Self::Bullet,
-            Token::NumberedItemMarker { ty, .. } => match ty {
-                Numbering::Number => Self::Number,
-                Numbering::Upper => Self::Upper,
-                Numbering::Lower => Self::Lower,
-                Numbering::LowerNumeral => Self::LowerNumeral,
-                Numbering::UpperNumeral => Self::UpperNumeral,
-            },
-            Token::Checkbox { ty, .. } => match ty {
-                CheckboxType::Empty => Self::EmptyBox,
-                CheckboxType::Filled => Self::FilledBox,
-                CheckboxType::Toggle => Self::ToggleBox,
-            },
-            _ => panic!("Token is not a list item marker: {token:?}"),
-        }
-    }
-
-    /// Returns the open tag, or panics if this is a continuation.
-    #[inline]
-    pub const fn open_tag(self) -> &'static str {
-        match self {
-            Self::Bullet => "ul class='dt-bullet'",
-            Self::Number => "ol class='dt-numbering'",
-            Self::Lower => "ol type='a' class='dt-numbering'",
-            Self::Upper => "ol type='A' class='dt-numbering'",
-            Self::LowerNumeral => "ol type='i' class='dt-numbering'",
-            Self::UpperNumeral => "ol type='I' class='dt-numbering'",
-            Self::EmptyBox => "ol class='dt-checkbox--empty'",
-            Self::FilledBox => "ol class='dt-checkbox--filled'",
-            Self::ToggleBox => "ol class='det-checkbox--toggle'",
-        }
-    }
-
-    /// Returns the open tag, or panics if this is a continuation.
-    #[inline]
-    pub const fn close_tag(self) -> &'static str {
-        match self {
-            Self::Bullet => "ul",
-            _ => "ol",
         }
     }
 }

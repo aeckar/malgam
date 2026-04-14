@@ -49,12 +49,12 @@ impl InlineFormat {
     #[inline]
     pub const fn len(mask: u8) -> usize {
         if mask == Self::BOLD_ITALIC {
-            3
-        } else if mask == Self::Bold.bits() {
-            2
-        } else {
-            1
+            return 3;
         }
+        if mask == Self::Bold.bits() {
+            return 2;
+        }
+        return 1;
     }
 }
 
@@ -73,6 +73,60 @@ impl CheckboxType {
             b'o' => Some(CheckboxType::Empty),
             b'?' => Some(CheckboxType::Toggle),
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListItemKind {
+    Unordered,
+    Continuation,
+    Numbered(Numbering),
+    Checkbox(CheckboxType),
+}
+
+impl ListItemKind {
+    /// Returns true if both kinds of list items can reside within the same list.
+    #[inline]
+    pub fn is_sibling(self, other: Self) -> bool {
+        if self == Self::Unordered {
+            return other == Self::Unordered;
+        }
+        if matches!(self, Self::Numbered(_)) {
+            return self == other;
+        }
+        debug_assert!(matches!(self, Self::Checkbox(_)));
+        return matches!(other, Self::Checkbox(_));
+    }
+
+    /// Returns the open tag, or panics if this is a continuation.
+    #[inline]
+    pub const fn open_tag(self) -> &'static str {
+        match self {
+            Self::Unordered => "ul class='dt-Unordered'",
+            Self::Numbered(ty) => match ty {
+                Numbering::Number => "ol class='dt-numbering'",
+                Numbering::Lower => "ol type='a' class='dt-numbering'",
+                Numbering::Upper => "ol type='A' class='dt-numbering'",
+                Numbering::LowerNumeral => "ol type='i' class='dt-numbering'",
+                Numbering::UpperNumeral => "ol type='I' class='dt-numbering'",
+            },
+            Self::Checkbox(ty) => match ty {
+                CheckboxType::Empty =>"ol class='dt-checkbox--empty'",
+                CheckboxType::Filled => "ol class='dt-checkbox--filled'",
+                CheckboxType::Toggle => "ol class='det-checkbox--toggle'",
+            }
+            Self::Continuation => panic!("Cannot resolve open tag"),
+        }
+    }
+
+    /// Returns the open tag, or panics if this is a continuation.
+    #[inline]
+    pub const fn close_tag(self) -> &'static str {
+        match self {
+            Self::Unordered => "ul",
+            Self::Continuation => panic!("Cannot resolve close tag"),
+            _ => "ol",
         }
     }
 }
@@ -110,10 +164,7 @@ pub enum Token<'a> {
     HeadingMarker { depth: u8 },
     CodeBlock { body: &'a [u8], lang: &'a [u8] },
     MathBlock { body: &'a [u8] },
-    Checkbox { indent: u8, ty: CheckboxType },
-    ListItemMarker { indent: u8 },
-    NumberedItemMarker { indent: u8, ty: Numbering },
-    ContinuationMarker { indent: u8 },
+    ListItemMarker { indent: u8, kind: ListItemKind },
     AssignmentMarker { alias: &'a [u8] }, // [<key>]=<value>//todo works for citations via interpolation (`{paul}` => `[paul]=cite.{}`)
     Eof, // necessary to find bound for trailing plaintext; pruned before parsing
 }

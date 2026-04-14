@@ -2,10 +2,10 @@ use std::vec;
 
 use crate::{
     markup::{
-        lex::{Token, TokenKind as token, TokenSpan},
+        lex::{ListItemKind, Token, TokenKind as token, TokenSpan},
         parse::{
             AstNode, AstNode as node, Handler, NodeKind, NodeMetadata as meta, Result,
-            RuleKind as rule, SymbolKind, TokenStream,
+            RuleKind as rule, TokenStream,
         },
     },
     prelude::*,
@@ -346,16 +346,28 @@ impl<'a> Grammar {
     });
 
     pub fn list_item(mut tape: TokenStream<'a>, parent: &AstNode<'a>) -> Result<'a> {
-        let (_, res) =
-            token_options![tape; ContinuationMarker, ListItemMarker, NumberedItemMarker, Checkbox];
-        let (choice, child) = res?;
-        if child.kind.as_token_kind().unwrap() == token::ContinuationMarker {
-            let Token::ContinuationMarker { indent } = child.kind.token().unwrap() else {
-                unreachable!()
+        let mut a = try_token!(tape, ListItemMarker)?;
+        if let Some(Token::ListItemMarker {
+            indent: indent_a,
+            kind: meta_a,
+        }) = a.kind.token()
+        {
+            let Token::ListItemMarker { kind: meta, .. } = parent
+                .children
+                .iter()
+                .rev()
+                .map(|node| node.kind.token().unwrap())
+                .find(|token| {
+                    matches!(token,
+                        Token::ListItemMarker { indent, kind }
+                        if *indent == indent_a && meta_a != ListItemKind::Continuation
+                    )
+                })?
+            else {
+                unreachable!("Expected list item marker")
             };
-            parent.chil
+            a.meta = meta::ListItemKind(meta)
         }
-        let a = node::branch(rule::None, vec![child], choice);
         let (b, tape) = Self::paragraph(tape)?;
         Some((node::branch(rule::ListItem, vec![a, b], meta::None), tape))
     }

@@ -4,7 +4,10 @@ use thiserror::Error;
 use crate::{
     markup::{
         config::{DynConf, StaticConf},
-        lex::{CheckboxType, InlineFormat as fmt, Numbering, Token, TokenSpan},
+        lex::{
+            CheckboxType, InlineFormat as fmt, ListItemKind as item_meta, Numbering, Token,
+            TokenSpan,
+        },
     },
     prelude::*,
     tape::Tape,
@@ -154,11 +157,7 @@ impl<'a> Lexer<'a> {
         for i in 0..tokens.len() {
             match tokens[i].token {
                 // access by index to satisfy borrow checker
-                HeadingMarker { .. }
-                | LineQuoteMarker
-                | ListItemMarker { .. }
-                | NumberedItemMarker { .. }
-                | Checkbox { .. }
+                HeadingMarker { .. } | LineQuoteMarker | ListItemMarker { .. }
                     if !tokens.get(i + 1).is_some_and(|t| t.token.is_content()) =>
                 {
                     tokens[i].bind_plain();
@@ -451,8 +450,9 @@ impl<'a> Scanner<'a> {
         if tape.is_cur_prefix() {
             self.emit_inplace(
                 tape,
-                Token::ContinuationMarker {
+                Token::ListItemMarker {
                     indent: tape.count_indent(),
+                    kind: item_meta::Continuation,
                 },
                 1,
             );
@@ -464,9 +464,9 @@ impl<'a> Scanner<'a> {
             return None;
         }
         self.emit(
-            Token::NumberedItemMarker {
+            Token::ListItemMarker {
                 indent: tape.count_indent(),
-                ty: Numbering::from_marker(prev.unwrap())?,
+                kind: item_meta::Numbered(Numbering::from_marker(prev.unwrap())?),
             },
             tape.pos - 1,
             tape.pos + 1,
@@ -491,9 +491,9 @@ impl<'a> Scanner<'a> {
             }
             self.emit_inplace(
                 tape,
-                Token::Checkbox {
+                Token::ListItemMarker {
                     indent: tape.count_indent(),
-                    ty: CheckboxType::from_marker(marker)?,
+                    kind: item_meta::Checkbox(CheckboxType::from_marker(marker)?),
                 },
                 2,
             );
@@ -514,6 +514,7 @@ impl<'a> Scanner<'a> {
             tape,
             Token::ListItemMarker {
                 indent: tape.count_indent(),
+                kind: item_meta::Unordered,
             },
             1,
         );
