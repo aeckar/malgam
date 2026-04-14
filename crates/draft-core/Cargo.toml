@@ -50,14 +50,15 @@ serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.149", optional = true }
 
 [features]
-default = ["compile", "format"]
+default = ["parse-markup"]
 full = [
-    "compile",
-    "data",
-    "expressions",
-    "format",
-    "html",
-    "markdown",
+    "parse-markup",
+    "parse-data",
+    "parse-expressions",
+    "formatter",
+    "to-html",
+    "to-markdown",
+    "from-markdown",
     "macros",
     "serde",
 ]
@@ -65,14 +66,15 @@ full = [
 parse-markup = ["dep:strum"]
 parse-data = ["dep:lexical-core"]
 parse-expressions = ["parse-data"]
-format = []
-html = [
+formatter = []
+to-html = [
     "parse-markup",
     "dep:html-escape",
     "dep:mime_guess",
     "dep:video-url-validator",
 ]
-markdown = ["parse-markup", "dep:pulldown-cmark"]
+to-markdown = ["parse-markup"]
+from-markdown = ["parse-markup", "dep:pulldown-cmark"]
 macros = ["dep:boa_engine", "dep:csv"]
 serde = ["parse-data", "dep:serde", "dep:serde_json"]
 
