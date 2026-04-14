@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::Utf8Error};
 
+use ordered_float::NotNan;
 use thiserror::Error;
 
 use crate::prelude::*;
@@ -20,11 +21,11 @@ use crate::prelude::*;
 /// The `fmt` (and as a result, `to_string`) implementations emit the
 /// most concise object notation possible. Pretty printing is supported via the
 /// `pfmt` and `to_pstring` functions. Strings are always enclosed using `"`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataValue {
     Null,
     Bool(bool),
-    Number(f64),
+    Number(NotNan<f64>),
     String(String),
     List(Vec<DataValue>),
     Object {
@@ -131,16 +132,18 @@ pub enum DataError {
 
 /// Object notation syntax.
 ///
+/// On success, calling `compile` returns the decoded data and the number of bytes read.
+///
 /// # Implementation
 /// Since object notation is relatively small compared to markup, we skip `simdutf8`
 /// for UTF-8 validation. Instead, we give callers that responsibility (except for slices).
-pub struct DataFile<'a> {
+pub struct DataSyntax<'a> {
     /// The input text.
     pub input: &'a [u8],
 }
 
-impl<'a> Compile for DataFile<'a> {
-    type Output = Result<DataValue, DataError>;
+impl<'a> Compile for DataSyntax<'a> {
+    type Output = Result<(DataValue, usize), DataError>;
 
     fn compile(self) -> Self::Output {
         self.parse_any(&mut Tape::new(self.input))
@@ -148,14 +151,14 @@ impl<'a> Compile for DataFile<'a> {
 }
 
 /// All `parse_X` functions assume cursor is at a valid character.
-impl<'a> DataFile<'a> {
+impl<'a> DataSyntax<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             input: input.as_bytes(),
         }
     }
 
-    fn parse_any(&self, tape: &mut Tape<'a, u8>) -> Result<DataValue, DataError> {
+    fn parse_any(&self, tape: &mut Tape<'a, u8>) -> Result<(DataValue, usize), DataError> {
         use lexical_core::{format, parse_float_options as options};
         const NUM_FMT: u128 = format::STANDARD;
         const NUM_OPTIONS: options::Options = options::Options::builder()
@@ -164,7 +167,7 @@ impl<'a> DataFile<'a> {
             .infinity_string(Some(b"infinity"))
             .exponent(b'e')
             .lossy(false) // greater accuracy, slower on precise numbers
-            .nan_string(Some(b"nan"))
+            .nan_string(None)
             .build_strict();
 
         let start = tape.pos;
@@ -174,13 +177,25 @@ impl<'a> DataFile<'a> {
             return Err(DataError::MissingValue { pos: start });
         }
         if tape.is_at(b"true") {
-            return Ok(DataValue::Bool(true));
+            return Ok((DataValue::Bool(true), 4));
         }
         if tape.is_at(b"false") {
-            return Ok(DataValue::Bool(false));
+            return Ok((DataValue::Bool(false), 5));
         }
         if tape.is_at(b"null") {
-            return Ok(DataValue::Null);
+            return Ok((DataValue::Null, 4));
+        }
+        if tape.is_at(b"inf") {
+            return Ok((
+                DataValue::Number(unsafe { NotNan::new_unchecked(f64::INFINITY) }),
+                3,
+            ));
+        }
+        if tape.is_at(b"infinity") {
+            return Ok((
+                DataValue::Number(unsafe { NotNan::new_unchecked(f64::INFINITY) }),
+                8,
+            ));
         }
 
         let ch = tape.cur().unwrap();
@@ -201,7 +216,7 @@ impl<'a> DataFile<'a> {
                     })
                 } else {
                     Ok(DataValue::String(
-                        tape.slice(start + 1..tape.pos).to_utf8()?.to_owned(),
+                        str::from_utf8(&tape[start + 1..tape.pos]).ok()?.to_owned(),
                     ))
                 }
             }
@@ -215,23 +230,23 @@ impl<'a> DataFile<'a> {
                     })
                 } else {
                     Ok(DataValue::String(
-                        tape.slice(start + 1..tape.pos).to_utf8()?.to_owned(),
+                        str::from_utf8(&tape[start + 1..tape.pos]).ok()?.to_owned(),
                     ))
                 }
             }
-            b'-' | b'+' | b'0'..=b'9' => lexical_core::parse_partial_with_options::<f64, NUM_FMT>(
-                tape.from_pos(),
-                &NUM_OPTIONS,
-            )
-            .inspect(|&(_, len)| tape.pos += len)
-            .map(|(n, _)| DataValue::Number(n))
-            .map_err(|e| DataError::InvalidNumber(e)),
+            b'-' | b'+' | b'0'..=b'9' => {
+                lexical_core::parse_partial_with_options::<f64, NUM_FMT>(tape.rest(), &NUM_OPTIONS)
+                    .inspect(|&(_, len)| tape.pos += len)
+                    .map(|(n, _)| DataValue::Number(n))
+                    .map_err(|e| DataError::InvalidNumber(e))
+            }
             b';' => {
                 // same comment style as markup
                 Err(DataError::MissingValue { pos: start })
             }
             _ => Err(DataError::IllegalCharacter { ch, pos: start }),
         }
+        .map(|value| (value, tape.pos))
     }
 
     fn parse_tag(&self, tape: &mut Tape<'a, u8>) -> Result<String, DataError> {
@@ -314,7 +329,7 @@ impl<'a> DataFile<'a> {
             }
             tape.adv(); // skip '='
             tape.consume(|ch, _| ch.is_file_ws());
-            let val = self.parse_any(tape)?;
+            let (val, _) = self.parse_any(tape)?;
 
             map.insert(key, val);
         }
@@ -336,7 +351,7 @@ impl<'a> DataFile<'a> {
                     open_pos: tape.pos,
                 });
             }
-            let val = self.parse_any(tape)?;
+            let (val, _) = self.parse_any(tape)?;
             items.push(val);
             tape.consume(|ch, _| ch.is_file_ws() || ch == b'\n');
             if tape.cur() == Some(b',') {

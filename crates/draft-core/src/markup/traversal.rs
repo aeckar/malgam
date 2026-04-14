@@ -62,8 +62,6 @@ macro_rules! emit {
     };
 }
 
-
-
 pub type Visitor<'a, T: AstVisitor<'a>> = fn(&mut T, node: &AstNode<'a>);
 
 /// A visitor trait for traversing and processing AST (Abstract Syntax Tree) nodes.

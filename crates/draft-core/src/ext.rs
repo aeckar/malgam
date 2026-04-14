@@ -1,5 +1,3 @@
-use std::str::Utf8Error;
-
 use bitflags::Flags;
 
 bitflags::bitflags! {
@@ -14,8 +12,8 @@ bitflags::bitflags! {
 
 impl CharType {
     #[inline]
-    const fn with_len(len: u8) -> u8 {
-        bits() | (len << Self::FLAGS.len())
+    const fn with_len(self, len: u8) -> u8 {
+        self.bits() | (len << Self::FLAGS.len())
     }
 }
 
@@ -116,9 +114,6 @@ impl CharExt for u8 {
 pub trait SliceExt {
     /// Returns a subslice with leading and trailing flanking white space removed.
     fn trim_file_ws(&self) -> Self;
-
-    /// Attempts to convert this slice to a UTF-8 string with the same contents.
-    fn to_utf8(&self) -> Result<&str, Utf8Error>;
 }
 
 impl SliceExt for &[u8] {
@@ -141,10 +136,5 @@ impl SliceExt for &[u8] {
             }
         }
         bytes
-    }
-
-    #[inline]
-    fn to_utf8(&self) -> Result<&str, Utf8Error> {
-        str::from_utf8(self).map_err(|e| e.utf8_error())
     }
 }

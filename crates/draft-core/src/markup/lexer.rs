@@ -2,13 +2,13 @@ use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
 use crate::{
-    data::parser::{DataFile, DataValue},
+    data::parser::DataSyntax,
     markup::{
         config::{DynConf, StaticConf},
         lex::{CheckboxType, InlineFormat, ListItemKind, Numbering, Token, TokenSpan},
     },
     prelude::*,
-    tape::{self, Tape},
+    tape::Tape,
 };
 
 #[derive(Error, Debug)]
@@ -17,9 +17,8 @@ pub enum LexerError {
     InvalidUtf8(#[from] Utf8Error),
 }
 
-/// Markup syntax.
 #[derive(Debug)]
-pub struct Lexer<'a> {
+pub struct MarkupSyntax<'a> {
     /// The input text.
     pub input: &'a [u8],
 
@@ -30,7 +29,7 @@ pub struct Lexer<'a> {
     pub static_conf: &'a StaticConf,
 }
 
-impl<'a> Compile for Lexer<'a> {
+impl<'a> Compile for MarkupSyntax<'a> {
     type Output = Result<Vec<TokenSpan<'a>>, LexerError>;
 
     fn compile(self) -> Self::Output {
@@ -46,7 +45,7 @@ impl<'a> Compile for Lexer<'a> {
     }
 }
 
-impl<'a> Lexer<'a> {
+impl<'a> MarkupSyntax<'a> {
     pub const fn new(dyn_conf: &'a DynConf, static_conf: &'a StaticConf, input: &'a [u8]) -> Self {
         Self {
             input,
@@ -260,7 +259,7 @@ impl<'a> Scanner<'a> {
             let (open_mask, open_pos) = self.open_fmts.pop().unwrap();
             let open_len = InlineFormat::len(open_mask);
             // unsorted tokens don't matter since tokens are sorted after Pass 1
-            if (fmt & open_mask).ilog2() == 1 {
+            if (fmt.bits() & open_mask.bits()).ilog2() == 1 {
                 // basic pair
                 self.emit(
                     Token::InlineFormat {
@@ -419,36 +418,23 @@ impl<'a> Scanner<'a> {
     }
 
     #[must_use]
-    fn try_assignment(&self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
+    fn try_assignment(&mut self, mut tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
         let start = tape.pos;
         tape.adv(); // skip `[`
         tape.consume(|ch, _| ch.is_file_ws());
-        let start = tape.next().filter(|ch, _| ch.is_file_key_start())?;
-        let parts = tape.consume(|ch, _| ch.is_file_key_part());
-        if parts.is_empty() {
-            return None;
-        }
+        tape.next().filter(|ch| ch.is_file_key_start())?;
+        let key_start = tape.pos;
+        tape.consume(|ch, _| ch.is_file_key_part());
+        let key = &tape[key_start..tape.pos];
         tape.consume(|ch, _| ch.is_file_ws());
-        tape.next().filter(|ch, _| ch == b']')?;
+        tape.next().filter(|&ch| ch == b']')?;
         tape.consume(|ch, _| ch.is_file_ws());
-        tape.next().filter(|ch, _| ch == b'=')?;
+        tape.next().filter(|&ch| ch == b'=')?;
         tape.consume(|ch, _| ch.is_file_ws());
-        let data = match tape.rest().to_utf8() {
-            Ok(data) => data,
-            Err(e) => {
-                let data = str::from_utf8(&tape.rest()[..e.valid_up_to()]).unwrap();
-                self.emit(
-                    Token::CorruptText,
-                    tape.pos + e.valid_up_to(),
-                    tape.pos + e.valid_up_to() + e.error_len(),
-                );
-                data
-            }
-        };
-
-        DataFile::new().compile();
-
-        DataValue
+        let (value, len) = DataSyntax::new(str::from_utf8(tape.rest()).ok()?).compile().ok()?;
+        tape.pos += len;
+        self.emit(Token::Assignment { key, value }, start, tape.pos);
+        Some(tape)  // allow trailing tokens
     }
 
     /// Resolves whether a ']' character belongs to a link body, an embed body, or plain text.
@@ -598,7 +584,7 @@ impl<'a> Scanner<'a> {
 
             self.emit(
                 Token::MathBlock {
-                    body: &tape.slice(body_start..tape.pos),
+                    body: &tape[body_start..tape.pos],
                 },
                 start,
                 tape.pos + 1,
@@ -614,7 +600,7 @@ impl<'a> Scanner<'a> {
         }
         self.tokens.push(TokenSpan::new(
             Token::InlineMath {
-                body: &tape.slice(start + 1..tape.pos),
+                body: &tape[start + 1..tape.pos],
             },
             start,
             tape.pos + 1,
@@ -640,7 +626,7 @@ impl<'a> Scanner<'a> {
             }
             self.emit(
                 Token::CodeBlock {
-                    body: &tape.slice(body_start..tape.pos),
+                    body: &tape[body_start..tape.pos],
                     lang: lang.trim_file_ws(),
                 },
                 start,
@@ -657,7 +643,7 @@ impl<'a> Scanner<'a> {
             tape.adv(); // skip over first '`' of closer
             self.emit(
                 Token::InlineRawCode {
-                    body: &tape.slice(start + 2..tape.pos),
+                    body: &tape[start + 2..tape.pos],
                 },
                 start,
                 tape.pos + 1,
@@ -670,7 +656,7 @@ impl<'a> Scanner<'a> {
         }
         self.tokens.push(TokenSpan::new(
             Token::InlineCode {
-                body: &tape.slice(start + 1..tape.pos),
+                body: &tape[start + 1..tape.pos],
             },
             start,
             tape.pos + 1,
@@ -725,7 +711,7 @@ impl<'a> Scanner<'a> {
             tape.adv(); // skip past ']'
             self.emit(
                 Token::MacroArgs {
-                    body: &tape.slice(next_pos + 1..tape.pos),
+                    body: &tape[next_pos + 1..tape.pos],
                 },
                 next_pos,
                 tape.pos,
@@ -742,7 +728,7 @@ impl<'a> Scanner<'a> {
             tape.adv(); // skip past '}'
             self.emit(
                 Token::MacroBody {
-                    body: &tape.slice(next_pos + 1..tape.pos),
+                    body: &tape[next_pos + 1..tape.pos],
                 },
                 next_pos,
                 tape.pos,

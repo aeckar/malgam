@@ -43,10 +43,10 @@ impl<'a, T> Tape<'a, T> {
     pub const fn new(raw: &'a [T]) -> Self {
         Self { raw, pos: 0 }
     }
-
+    
     /// Returns a subslice over the original slice from the current position.
     #[inline(always)]
-    pub fn from_pos(self) -> &'a [T] {
+    pub fn rest(self) -> &'a [T] {
         &self.raw[self.pos..self.raw.len()]
     }
 

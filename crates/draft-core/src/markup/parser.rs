@@ -134,6 +134,7 @@ macro_rules! rule {
 ///     | HorizontalRule
 ///     | CodeBlock
 ///     | MathBlock
+///     | Assignment
 ///     | list
 ///     | paragraph
 ///     | heading
@@ -344,7 +345,7 @@ impl<'a> Grammar {
 
         // mark last item
         let pos = ListItemPos::from_bits(pos.bits() | ListItemPos::Last.bits()).unwrap();
-        
+
         prev.meta = meta::ListItem { kind, pos };
         let a = node::branch(rule::None, children_a, meta::None);
         Some((node::branch(rule::List, vec![a], meta::None), tape))
@@ -385,19 +386,19 @@ impl<'a> Grammar {
                 prev,
                 ListItemMarker {
                     indent: prev_indent,
-                    pos: prev_pos,
+                    pos: prev_pos
                 }
             );
             if prev_indent > indent_a {
                 pos |= ListItemPos::First;
             } else if prev_indent < indent_a {
                 unpack!(prev.meta, meta::ListItem { kind, pos });
-                prev.meta = meta::ListItem { kind, pos | ListItemPos::Last };
+                prev.meta = meta::ListItem {
+                    kind,
+                    pos: pos.intersect(ListItemPos::Last),
+                };
             }
-            a.meta = meta::ListItem {
-                kind: kind_a,
-                pos: ListItemPos::from_bits(pos).unwrap(),
-            };
+            a.meta = meta::ListItem { kind: kind_a, pos };
         }
         let (b, tape) = Self::line(tape)?;
         Some((node::branch(rule::ListItem, vec![a, b], meta::None), tape))

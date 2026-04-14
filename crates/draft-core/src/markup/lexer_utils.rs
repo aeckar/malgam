@@ -3,7 +3,10 @@ use std::sync::OnceLock;
 use bitflags::bitflags;
 use strum::EnumDiscriminants;
 
-use crate::{data::parser::DataValue, markup::parse::{RuleKind, SymbolKind}};
+use crate::{
+    data::parser::DataValue,
+    markup::parse::{RuleKind, SymbolKind},
+};
 
 /// Unpacks a specific enum variant from a token, destructuring its fields into local variables.
 ///
@@ -31,7 +34,7 @@ use crate::{data::parser::DataValue, markup::parse::{RuleKind, SymbolKind}};
 /// ```
 #[macro_export]
 macro_rules! unpack_token {
-    ($instance:expr, $variant:ident { $($field:ident $(: $alias:ident)?),* $(, ..)? }) => {
+    ($instance:expr, $variant:ident { $($field:ident $(: $alias:ident)?),* $(, $(..)?)? }) => {
         let $crate::markup::lex::Token::$variant {
             $($field $(: $alias)?),* , ..
         } = $instance.kind.token().unwrap() else {
@@ -76,18 +79,18 @@ bitflags::bitflags! {
         const UNDERLINE = 0b000_1000;
         const HIGHLIGHT = 0b0001_0000;
 
-        const BOLD_ITALIC = BOLD | ITALIC;
+        const BOLD_ITALIC = Self::BOLD.bits() | Self::ITALIC.bits();
     }
 }
 
 impl InlineFormat {
     /// Returns the length of the character cluster that denotes the given flag or bitmask.
     #[inline]
-    pub const fn len(self) -> usize {
-        if mask == Self::BOLD_ITALIC {
+    pub fn len(self) -> usize {
+        if self == Self::BOLD_ITALIC {
             return 3;
         }
-        if mask == Self::BOLD.bits() {
+        if self == Self::BOLD {
             return 2;
         }
         return 1;
@@ -211,9 +214,6 @@ pub enum Token<'a> {
     MathBlock { body: &'a [u8] },
     ListItemMarker { indent: u8, kind: ListItemKind },
     Assignment { key: &'a [u8], value: DataValue }, // [<key>]=<value>//todo works for citations via interpolation (`{paul}` => `[paul]=cite.{}`)
-
-    // Special
-    CorruptText,
     Eof, // necessary to find bound for trailing plaintext; pruned before parsing
 }
 
