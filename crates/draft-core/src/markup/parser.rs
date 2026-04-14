@@ -328,7 +328,9 @@ impl<'a> Grammar {
     });
 
     rule!(list, |mut tape| {
-        if tape
+        if !tape.has_next() {
+            
+        }
         let mut children_a = vec![];
         let node = node::new(rule::List, vec![], tape., meta)
         while let Some((child_a, jump)) = Self::list_item(tape) {

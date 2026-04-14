@@ -23,7 +23,7 @@ use crate::ext::CharExt;
 /// The name *"pos"* is used to distinguish indices in a `Tape` from other data structures.
 /// It is not guaranteed to be within the acceptable range of indices at any given point,
 /// but member functions assume so.
-/// 
+///
 /// `#[inline(always)]` should be restricted to functions called often in the
 /// main `Scanner`/`Grammar` recursions, where the benefit of inlining is completely certain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,7 +50,13 @@ impl<'a, T: Copy> Iterator for Tape<'a, T> {
     }
 }
 
-impl<'a, T: Copy + PartialEq> Tape<'a, T> {
+impl<'a, T> Tape<'a, T> {
+    #[must_use]
+    #[inline(always)]
+    pub const fn has_next(self) -> bool {
+        self.pos >= self.raw.len()
+    }
+
     #[inline]
     pub const fn new(raw: &'a [T]) -> Self {
         Self { raw, pos: 0 }
@@ -59,19 +65,6 @@ impl<'a, T: Copy + PartialEq> Tape<'a, T> {
     #[inline(always)]
     pub fn slice(self, range: Range<usize>) -> &'a [T] {
         &self.raw[range]
-    }
-
-    /// Returns the **current** element, if exists, before incrementing the current position.
-    ///
-    /// This function is primarily used for iteration.
-    /// If used for iteration, the current position may be modified concurrently.
-    ///
-    /// If the tape is exhausted, `pos` will still be incremented.
-    #[inline(always)]
-    pub fn next(&mut self) -> Option<T> {
-        let elem = self.raw.get(self.pos);
-        self.pos += 1;
-        elem.map(|e| *e)
     }
 
     /// Advances the current position by 1 element.
@@ -84,6 +77,21 @@ impl<'a, T: Copy + PartialEq> Tape<'a, T> {
     #[inline(always)]
     pub const fn dec(&mut self) {
         self.pos -= 1;
+    }
+}
+
+impl<'a, T: Copy + PartialEq> Tape<'a, T> {
+    /// Returns the **current** element, if exists, before incrementing the current position.
+    ///
+    /// This function is primarily used for iteration.
+    /// If used for iteration, the current position may be modified concurrently.
+    ///
+    /// If the tape is exhausted, `pos` will still be incremented.
+    #[inline(always)]
+    pub fn next(&mut self) -> Option<T> {
+        let elem = self.raw.get(self.pos);
+        self.pos += 1;
+        elem.map(|e| *e)
     }
 
     /// Returns the current element, or `None` if `pos` is out of bounds.
@@ -425,11 +433,5 @@ impl<'a> Tape<'a, u8> {
             _ => (t, s),
         });
         tabs + (spaces / 4)
-    }
-
-    #[must_use]
-    #[inline(always)]
-    pub const fn has_next(self) -> bool {
-        self.pos >= self.raw.len()
     }
 }
