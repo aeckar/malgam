@@ -109,12 +109,14 @@ pub trait AstVisitor<'a> {
 /// - **Block:** `.block`
 /// - **Element:** `.block__element`
 /// - **Modifier:** `.block--modifier` or `.block__element--modifier`
-pub struct AstToHtml {
+#[cfg(feature = "to-html")]
+pub struct HtmlVisitor {
     out: String,
     in_pgraph: bool,
 }
 
-impl AstToHtml {
+#[cfg(feature = "to-html")]
+impl HtmlVisitor {
     #[inline(always)]
     pub const fn new() -> Self {
         Self {
@@ -124,11 +126,12 @@ impl AstToHtml {
     }
 }
 
-impl<'a> AstVisitor<'a> for AstToHtml {
+#[cfg(feature = "to-html")]
+impl<'a> AstVisitor<'a> for HtmlVisitor {
     // fallthrough none
     // fallthrough line
 
-    visitor!(paragraph, |model: &mut AstToHtml, node| {
+    visitor!(paragraph, |model: &mut HtmlVisitor, node| {
         model.in_pgraph = true;
         emit!(model, "<p class='dt-pgraph'>");
         node[0]
@@ -141,75 +144,74 @@ impl<'a> AstVisitor<'a> for AstToHtml {
         model.in_pgraph = false;
     });
 
-    visitor!(newline, |model: &mut AstToHtml, _| {
+    visitor!(newline, |model: &mut HtmlVisitor, _| {
         emit!(model, " ");
     });
 
-    visitor!(list, |model: &mut AstToHtml, node| {
-        let mut prev = ListItemKind::Continuation; // panics if used to get tag
-        for child in node.iter() {
-            let marker = &child[0];
-            let kinds = vec![];
-            let kind = ListItemKind::from_token(marker.kind.token().unwrap());
-            loop {
-                if kinds.is_empty() {
-                    emit!(model, kind.open_tag_or(prev.unwrap()));
-                }
-            }
-            prev = Some(kind);
-        }
-    });
+    visitor!(list, |model: &mut HtmlVisitor, node| { todo!() });
 
-    visitor!(markup, |model: &mut AstToHtml, node| {});
+    visitor!(markup, |model: &mut HtmlVisitor, node| {});
 
-    visitor!(heading, |model: &mut AstToHtml, node| {
+    visitor!(heading, |model: &mut HtmlVisitor, node| {
         unpack_token!(node[0], HeadingMarker { depth });
         emit!(model, "<h{depth}>");
         model.visit_line(&node[1]);
         emit!(model, "</h{depth}>");
     });
 
-    visitor!(format, |model: &mut AstToHtml, node| {
+    visitor!(format, |model: &mut HtmlVisitor, node| {
         unpack_token!(node[0], InlineFormat { ty });
         match ty {
-            InlineFormat::Bold => {
+            InlineFormat::BOLD => {
                 emit!(model, "<b class='dt-bold'>");
                 model.visit_paragraph(&node[1]);
                 emit!(model, "</b>");
             }
-            InlineFormat::Highlight => {
+            InlineFormat::HIGHLIGHT => {
                 emit!(model, "<mark class='dt-hl'>");
                 model.visit_paragraph(&node[1]);
                 emit!(model, "</mark>");
             }
-            InlineFormat::Italic => {
+            InlineFormat::ITALIC => {
                 emit!(model, "<i class='dt-italic'>");
                 model.visit_paragraph(&node[1]);
                 emit!(model, "</i>");
             }
-            InlineFormat::Strikethrough => {
+            InlineFormat::STRIKETHROUGH => {
                 emit!(model, "<s class='dt-rem'>");
                 model.visit_paragraph(&node[1]);
                 emit!(model, "</s>");
             }
-            InlineFormat::Underline => {
+            InlineFormat::UNDERLINE => {
                 emit!(model, "<u class='dt-under'>");
                 model.visit_paragraph(&node[1]);
                 emit!(model, "</u>");
             }
+            _ => panic!("Invalid format"),
         }
+    });
+
+    visitor!(horizontal_rule, |model: &mut HtmlVisitor, _| {
+        emit!(model, "<hr>");
     });
 }
 
-pub struct AstToMarkdown {
+#[cfg(feature = "to-markdown")]
+pub struct MarkdownVisitor {
     out: String,
 }
 
-impl AstToMarkdown {
+#[cfg(feature = "to-markdown")]
+impl MarkdownVisitor {
     #[inline(always)]
     pub const fn new() -> Self {
         Self { out: String::new() }
     }
 }
 
-impl<'a> AstVisitor<'a> for AstToMarkdown {}
+#[cfg(feature = "to-markdown")]
+impl<'a> AstVisitor<'a> for MarkdownVisitor {
+    visitor!(horizontal_rule, |model: &mut MarkdownVisitor, _| {
+        emit!(model, "---");
+    });
+}

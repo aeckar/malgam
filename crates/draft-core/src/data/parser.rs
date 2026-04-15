@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Display, str::Utf8Error};
 
 use ordered_float::NotNan;
 use thiserror::Error;
+use unindent::unindent;
 
 use crate::prelude::*;
 
@@ -14,9 +15,9 @@ use crate::prelude::*;
 /// the infinities (`inf|infinity|+inf|+infinity|-inf|-infinity`) and not-a-number
 /// (`nan`, case insensitive).
 ///
-/// Strings may be enclosed using either `'` or `"`.
-///
-///
+/// Strings may be enclosed using either `'` or `"`, and may contain newlines.
+/// `\` can be used to escape the next byte in the sequence. Leading and trailing first newlines
+/// are removed, as well as any recognized indentation.
 ///
 /// The `fmt` (and as a result, `to_string`) implementations emit the
 /// most concise object notation possible. Pretty printing is supported via the
@@ -206,34 +207,8 @@ impl<'a> DataSyntax<'a> {
             }
             b'.' => self.parse_obj(tape, "".to_string()),
             b'{' => self.parse_list(tape),
-            b'"' => {
-                // todo escapes, multiline
-                if !tape.seek_at_in_pgraph(1, b"\"") {
-                    Err(DataError::MissingCloser {
-                        open: b'"',
-                        close: b'"',
-                        open_pos: start,
-                    })
-                } else {
-                    Ok(DataValue::String(
-                        str::from_utf8(&tape[start + 1..tape.pos])?.to_owned(),
-                    ))
-                }
-            }
-            b'\'' => {
-                // todo escapes, multiline
-                if !tape.seek_at_in_pgraph(1, b"'") {
-                    Err(DataError::MissingCloser {
-                        open: b'\'',
-                        close: b'\'',
-                        open_pos: start,
-                    })
-                } else {
-                    Ok(DataValue::String(
-                        str::from_utf8(&tape[start + 1..tape.pos])?.to_owned(),
-                    ))
-                }
-            }
+            b'"' => self.parse_string(tape, b'"'),
+            b'\'' => self.parse_string(tape, b'\''),
             b'-' | b'+' | b'0'..=b'9' => {
                 lexical_core::parse_partial_with_options::<f64, NUM_FMT>(tape.rest(), &NUM_OPTIONS)
                     .inspect(|&(_, len)| tape.pos += len)
@@ -258,6 +233,55 @@ impl<'a> DataSyntax<'a> {
         }
         tape.dec(); // put back '.'
         Ok(str::from_utf8(tag)?.to_string())
+    }
+
+    /// Parse a single- or multi-line quoted string.
+    ///
+    /// Advances `tape` past the closing delimiter.
+    /// Supports `\"` / `\'` escape sequences; a raw newline is legal inside
+    /// the string (multiline mode).  When a newline is found, the raw body is
+    /// fed through `process_multiline_string` to strip common indentation
+    /// and surrounding blank lines.
+    fn parse_string(
+        &self,
+        tape: &mut Tape<'a, u8>,
+        delim: u8,
+    ) -> Result<DataValue, DataError> {
+        let open_pos = tape.pos;
+        tape.adv(); // skip opening delimiter
+        let body_start = tape.pos;
+        let mut escaped = false;
+        loop {
+            match tape.cur() {
+                None => {
+                    return Err(DataError::MissingCloser {
+                        open: delim,
+                        close: delim,
+                        open_pos,
+                    });
+                }
+                Some(b'\\') => {
+                    escaped = !escaped; // cancels escape on next byte
+                    tape.adv();
+                }
+                Some(ch) if ch == delim && !escaped => {
+                    // found the unescaped closing delimiter
+                    let raw = std::str::from_utf8(&tape[body_start..tape.pos])?;
+                    let value = if raw.contains('\n') {
+                        // multiline: strip common indent and surrounding blank lines
+                        DataValue::String(unindent(raw))
+                    } else {
+                        DataValue::String(raw.to_owned())
+                    };
+                    tape.adv(); // skip closing delimiter
+                    return Ok(value);
+                }
+                _ => {
+                    escaped = false;
+                    tape.adv();
+                }
+            }
+        }
     }
 
     fn parse_obj(&self, tape: &mut Tape<'a, u8>, tag: String) -> Result<DataValue, DataError> {
@@ -296,7 +320,7 @@ impl<'a> DataSyntax<'a> {
 
             // Get key
             let key: &'a [u8];
-            let copy = *tape;   // satisfies borrow checker
+            let copy = *tape; // satisfies borrow checker
             if ch == b'"' {
                 tape.adv();
                 key = tape.consume(|ch, pos| {
@@ -330,9 +354,9 @@ impl<'a> DataSyntax<'a> {
             }
             tape.adv(); // skip '='
             tape.consume(|ch, _| ch.is_file_ws());
-            let (val, _) = self.parse_any(tape)?;
+            let (value, _) = self.parse_any(tape)?;
 
-            map.insert(key, val);
+            map.insert(key, value);
         }
         Ok(DataValue::Object { tag, map })
     }
@@ -352,8 +376,8 @@ impl<'a> DataSyntax<'a> {
                     open_pos: tape.pos,
                 });
             }
-            let (val, _) = self.parse_any(tape)?;
-            items.push(val);
+            let (value, _) = self.parse_any(tape)?;
+            items.push(value);
             tape.consume(|ch, _| ch.is_file_ws() || ch == b'\n');
             if tape.cur() == Some(b',') {
                 tape.adv();
