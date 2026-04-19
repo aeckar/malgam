@@ -42,7 +42,7 @@ const CHAR_TABLE: [u8; 256] = {
         "abcdefghijklmnopqrstuvwxyz",
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
         "0123456789",
-        "-.$",
+        "-_.$",
     )
     .as_bytes();
     let mut i = 0;
@@ -73,18 +73,21 @@ pub trait CharExt {
     #[must_use]
     fn file_ws_len(&self) -> u8;
 
-    /// Returns true if this character may be part of an unescaped (without `""`) key
+    /// Returns true if this character may be part of an unescaped (without `[]`) key
     /// in object notation.
     ///
-    /// Keys must start with a letter or dollar sign.
+    /// Keys must start with a letter, dollar sign, or underscore.
     fn is_file_key_start(&self) -> bool;
 
-    /// Returns true if this character may be part of an unescaped (without `""`) key
+    /// Returns true if this character may be part of an unescaped (without `[]`) key
     /// in object notation.
     ///
-    /// Letters, digits, dashes, dots, and dollar signs are accepted.
+    /// Letters, digits, dashes, underscores, dots, and dollar signs are accepted.
     /// Kebab case is used, with dots used to denote scope and dollar signs
     /// used to denote special keys.
+    /// 
+    /// Underscores are given as alternatives to dashes as a way to keep parity with CSS
+    /// if an object is used for styling.
     fn is_file_key_part(&self) -> bool;
 }
 

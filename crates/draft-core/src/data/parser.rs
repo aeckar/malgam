@@ -321,19 +321,19 @@ impl<'a> DataSyntax<'a> {
             // Get key
             let key: &'a [u8];
             let copy = *tape; // satisfies borrow checker
-            if ch == b'"' {
+            if ch == b'[' {
                 tape.adv();
                 key = tape.consume(|ch, pos| {
                     (ch != b'"' && ch != b'\n') || ch == b'"' && copy.get(pos - 1) == Some(&b'\\')
                 });
                 tape.adv(); // skip '"'
-            } else if ch == b'\'' {
+            } else if ch == b'[' {
                 tape.adv();
                 key = tape.consume(|ch, pos| {
-                    (ch != b'\'' && ch != b'\n') || ch == b'\'' && copy.get(pos - 1) == Some(&b'\\')
+                    (ch != b']' && ch != b'\n') || ch == b']' && copy.get(pos - 1) == Some(&b'\\')
                 });
                 tape.adv(); // skip `'`
-            } else if matches!(ch, b'-' | b'$' | b'a'..=b'z' | b'A'..=b'Z') {
+            } else if ch.is_file_key_start() {
                 key = tape.consume(|ch, _| ch.is_file_key_part());
             } else {
                 let pos = tape.pos;

@@ -2,7 +2,7 @@ use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
 use crate::{
-    data::parser::{DataSyntax, DataValue},
+    data::{DataSyntax, DataValue},
     markup::{
         config::{DynConf, StaticConf},
         lex::{CheckboxType, InlineFormat, ListItemKind, Numbering, Token, TokenSpan},
@@ -537,12 +537,17 @@ impl<'a> Scanner<'a> {
             return Some(tape); // stop at '-'
         }
         if tape.is_at(b"--") {
-            tape.pos += 2;
-            let tail = tape.consume(|ch, _| ch != b'\n');
-            if tail.iter().all(|ch| ch.is_file_ws()) {
+            tape.pos += 2 + tape.consume(|ch, _| ch == b'-').len();
+            if tape
+                .consume(|ch, _| ch != b'\n')
+                .iter()
+                .all(|ch| ch.is_file_ws())
+            {
                 self.emit_inplace(tape, Token::HorizontalRule, 3);
                 tape.dec();
                 return Some(tape); // stop at last '-'
+            } else {
+                return None;
             }
         }
         self.emit_inplace(

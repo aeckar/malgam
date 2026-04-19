@@ -29,7 +29,7 @@ macro_rules! visitor {
 }
 
 macro_rules! emit {
-    ($model:ident, $($arg:tt)* $(,)?) => {
+    ($model:ident, $($arg:tt)*) => {
         $model.out.push_str(&format!($($arg)*))
     };
 }
@@ -128,8 +128,12 @@ impl HtmlVisitor {
 
 #[cfg(feature = "to-html")]
 impl<'a> AstVisitor<'a> for HtmlVisitor {
-    // fallthrough none
-    // fallthrough line
+    visitor!(none, |model: &mut AstToHtml, node| {
+        match node.kind {
+            super::parse::NodeKind::Rule(rule_kind) => todo!(),
+            super::parse::NodeKind::Token(token) => todo!(),
+        }
+    });
 
     visitor!(paragraph, |model: &mut HtmlVisitor, node| {
         model.in_pgraph = true;
@@ -196,6 +200,7 @@ impl<'a> AstVisitor<'a> for HtmlVisitor {
     });
 }
 
+/// Transforms an AST into Github-flavored Markdown (GFM)
 #[cfg(feature = "to-markdown")]
 pub struct MarkdownVisitor {
     out: String,
@@ -213,5 +218,47 @@ impl MarkdownVisitor {
 impl<'a> AstVisitor<'a> for MarkdownVisitor {
     visitor!(horizontal_rule, |model: &mut MarkdownVisitor, _| {
         emit!(model, "---");
+    });
+
+    visitor!(newline, |model: &mut MarkdownVisitor, node| {
+        emit!(model, "\n");
+    });
+
+    visitor!(heading, |model: &mut MarkdownVisitor, node| {
+        unpack_token!(node[0], HeadingMarker { depth });
+        emit!(model, "{:#>1$} ", "", depth as usize);
+        model.visit_line(&node[1]);
+    });
+
+    visitor!(format, |model: &mut MarkdownVisitor, node| {
+        unpack_token!(node[0], InlineFormat { ty });
+        match ty {
+            InlineFormat::BOLD => {
+                emit!(model, "**");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "**");
+            }
+            InlineFormat::HIGHLIGHT => {
+                emit!(model, "***"); // default to bold-italic
+                model.visit_paragraph(&node[1]);
+                emit!(model, "***");
+            }
+            InlineFormat::ITALIC => {
+                emit!(model, "*");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "*");
+            }
+            InlineFormat::STRIKETHROUGH => {
+                emit!(model, "~~");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "~~");
+            }
+            InlineFormat::UNDERLINE => {
+                emit!(model, "<ins>");
+                model.visit_paragraph(&node[1]);
+                emit!(model, "</ins>");
+            }
+            _ => panic!("Invalid format"),
+        }
     });
 }
