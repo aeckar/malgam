@@ -7,6 +7,8 @@ license = "AGPL-3.0-only"                                # disallow competitors 
 homepage = "https://github.com/aeckar/draft"
 repository = "https://github.com/aeckar/draft"
 
+# todo minify features
+
 [dependencies]
 thiserror = "2.0.18"
 pastey = "0.2.1"
@@ -16,6 +18,9 @@ derive_more = { version = "2.1.1", features = ["deref"] }
 
 # object notation number representation
 ordered-float = "5.3.0"
+
+# validate probable hyperlinks
+linkify = "0.11.0"
 
 # compile to HTML
 mime_guess = { version = "2.0.5", optional = true }

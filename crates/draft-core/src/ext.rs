@@ -64,20 +64,22 @@ pub trait CharExt {
     ///
     /// Recognition of these whitespace characters extends to object notation also.
     #[must_use]
-    fn is_file_ws(&self) -> bool;
+    fn is_file_ws(self) -> bool;
 
     /// Returns the length of the given flanking whitespace character,
     /// where a tab counts as 4 spaces and space counts as 1.
     ///
     /// All other characters return a length of 0.
     #[must_use]
-    fn file_ws_len(&self) -> u8;
+    fn file_ws_len(self) -> u8;
 
     /// Returns true if this character may be part of an unescaped (without `[]`) key
     /// in object notation.
     ///
-    /// Keys must start with a letter, dollar sign, or underscore.
-    fn is_file_key_start(&self) -> bool;
+    /// Keys must start with a letter or dollar sign (signalling meta-properties).
+    ///
+    /// Keys are case-insensitive.
+    fn is_file_key_start(self) -> bool;
 
     /// Returns true if this character may be part of an unescaped (without `[]`) key
     /// in object notation.
@@ -85,59 +87,79 @@ pub trait CharExt {
     /// Letters, digits, dashes, underscores, dots, and dollar signs are accepted.
     /// Kebab case is used, with dots used to denote scope and dollar signs
     /// used to denote special keys.
-    /// 
+    ///
     /// Underscores are given as alternatives to dashes as a way to keep parity with CSS
-    /// if an object is used for styling.
-    fn is_file_key_part(&self) -> bool;
+    /// if an object is used for styling, and are treated as equivalent during parsing.
+    ///
+    /// Keys are case-insensitive.
+    fn is_file_key_part(self) -> bool;
 }
 
 impl CharExt for u8 {
     #[inline]
-    fn is_file_key_part(&self) -> bool {
-        (CHAR_TABLE[*self as usize] & CharType::IS_KEY_PART.bits()) != 0
+    fn is_file_key_part(self) -> bool {
+        (CHAR_TABLE[self as usize] & CharType::IS_KEY_PART.bits()) != 0
     }
 
     #[inline]
-    fn is_file_ws(&self) -> bool {
-        (CHAR_TABLE[*self as usize] & CharType::IS_FILE_WS.bits()) != 0
+    fn is_file_ws(self) -> bool {
+        (CHAR_TABLE[self as usize] & CharType::IS_FILE_WS.bits()) != 0
     }
 
     #[inline]
-    fn is_file_key_start(&self) -> bool {
-        (CHAR_TABLE[*self as usize] & CharType::IS_KEY_START.bits()) != 0
+    fn is_file_key_start(self) -> bool {
+        (CHAR_TABLE[self as usize] & CharType::IS_KEY_START.bits()) != 0
     }
 
     #[inline]
-    fn file_ws_len(&self) -> u8 {
+    fn file_ws_len(self) -> u8 {
         // shift the stored length value back down
-        CHAR_TABLE[*self as usize] >> CharType::FLAGS.len()
+        CHAR_TABLE[self as usize] >> CharType::FLAGS.len()
     }
 }
 
-pub trait SliceExt {
+pub trait SliceExt<'a> {
     /// Returns a subslice with leading and trailing flanking white space removed.
-    fn trim_file_ws(&self) -> Self;
+    fn trim_file_ws(self) -> Self;
+
+    /// Returns the top-level domain (TLD) of the link, which is assumed to be valid.
+    fn tld(self) -> Self;
 }
 
-impl SliceExt for &[u8] {
-    fn trim_file_ws(&self) -> Self {
-        let mut bytes = *self;
-        while let [first, rest @ ..] = bytes {
+impl<'a> SliceExt<'a> for &'a [u8] {
+    fn trim_file_ws(mut self) -> Self {
+        while let [first, rest @ ..] = self {
             // peel off front
             if first.is_file_ws() {
-                bytes = rest;
+                self = rest;
             } else {
                 break;
             }
         }
-        while let [rest @ .., last] = bytes {
+        while let [rest @ .., last] = self {
             // peel off back
             if last.is_file_ws() {
-                bytes = rest;
+                self = rest;
             } else {
                 break;
             }
         }
-        bytes
+        self
+    }
+
+    fn tld(self) -> Self {
+        let mut dot_idx = 0;
+        for (idx, &c) in self.iter().enumerate() {
+            if c == b'/' {
+                if idx == dot_idx + 1 {
+                    panic!("Invalid URL");
+                }
+                return &self[dot_idx + 1..idx];
+            }
+            if c == b'.' {
+                dot_idx = idx;
+            }
+        }
+        panic!("Invalid URL");
     }
 }

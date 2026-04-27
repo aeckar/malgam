@@ -1,3 +1,6 @@
+use std::sync::LazyLock;
+
+use linkify::{LinkFinder, LinkKind};
 use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
@@ -10,6 +13,18 @@ use crate::{
     prelude::*,
     tape::Tape,
 };
+
+static LINK_FINDER: LazyLock<LinkFinder> = LazyLock::new(|| {
+    let mut value = LinkFinder::new();
+    value
+        .kinds(&[LinkKind::Email, LinkKind::Url])
+        .email_domain_must_have_dot(true)
+        .url_can_be_iri(true)
+        .url_must_have_scheme(false);
+    value
+});
+
+const PRE_ICANN_TLD: [&[u8]; 7] = [b"com", b"org", b"net", b"int", b"edu", b"gov", b"mil"];
 
 #[derive(Error, Debug)]
 pub enum LexerError {
@@ -55,14 +70,25 @@ impl<'a> MarkupSyntax<'a> {
     }
 
     #[must_use]
+    #[inline(always)]
+    fn default_pgraph_spacing(&self) -> u8 {
+        if self.static_conf.single_line_mode {
+            1
+        } else {
+            2
+        }
+    }
+
+    #[must_use]
     fn parse_virtual_tokens(&self) -> Vec<TokenSpan<'a>> {
         let mut scan = Scanner {
             in_alt_text: false,
-            pgraph_spacing: 2,
+            pgraph_spacing: self.default_pgraph_spacing(),
             tokens: vec![],
             open_quotes: Vec::with_capacity(2),
             open_fmts: vec![],
             data_values: vec![],
+            not_a_url: vec![],
         };
         let mut tape = Tape::new(self.input);
 
@@ -74,7 +100,7 @@ impl<'a> MarkupSyntax<'a> {
             let jump: Option<Tape<'a, u8>> = match ch {
                 // ordered by expected frequency
                 b'\n' => {
-                    scan.pgraph_spacing = 2;
+                    scan.pgraph_spacing = self.default_pgraph_spacing();
                     scan.emit_inplace(tape, Token::Newline, 1);
                     // Returning a positive result even though the cursor hasn't moved
                     // results in a negligible performance hit
@@ -85,7 +111,7 @@ impl<'a> MarkupSyntax<'a> {
                 b'`' => scan.handle_btick(tape),
                 b'$' => scan.handle_dollar(tape, self.static_conf.finance_mode),
                 b'-' => scan.handle_dash(tape),
-                b'.' => scan.handle_dot(tape),
+                b'.' => scan.handle_dot(tape, self.static_conf.infer_links),
                 b'*' => scan.handle_star(tape),
                 b'_' => scan.handle_fmt(tape, InlineFormat::UNDERLINE),
                 b'|' => scan.handle_fmt(tape, InlineFormat::HIGHLIGHT),
@@ -186,6 +212,11 @@ impl<'a> MarkupSyntax<'a> {
 }
 
 /// Encapsulates mutable state shared between different handlers during Pass 1.
+/// Invalid UTF-8 substrings are treated as plaintext.
+///
+/// # Implementation
+/// All `handle_X` functions assume cursor is at a valid characters.
+/// Matching logic should be optimized by performing the cheapest validation first.
 struct Scanner<'a> {
     /// Virtual (non-plaintext) tokens.
     tokens: Vec<TokenSpan<'a>>,
@@ -199,13 +230,13 @@ struct Scanner<'a> {
     /// True if currently within alt text (validated '[').
     in_alt_text: bool,
 
-    /// A stack of positions of the first character of openers that
+    /// A FIFO stack of positions of the first character of openers that
     /// have been resolved but not yet paired with a closer.
     ///
     /// The first element of each pair is the flank type mask.
     open_fmts: Vec<(InlineFormat, usize)>,
 
-    /// A stack of positions of the first character of block quote openers that
+    /// A FIFO stack of positions of the first character of block quote openers that
     /// have been resolved but not yet paired with a closer.
     ///
     /// Block quotes can be nested, but the characters used must match.
@@ -213,10 +244,13 @@ struct Scanner<'a> {
     /// The first element of each pair is whether double quotes were used.
     open_quotes: Vec<(bool, usize)>,
 
+    /// Tracks dot (`.`) characters that have already been designated as not being where a
+    /// URL was found.
+    not_a_url: Vec<usize>,
+
     data_values: Vec<DataValue>,
 }
 
-/// All `handle_X` functions assume cursor is at a valid character.
 impl<'a> Scanner<'a> {
     /// Pushes the token nside the input between the start and end indices.
     /// The end index is exclusive.   
@@ -479,9 +513,14 @@ impl<'a> Scanner<'a> {
         Some(tape)
     }
 
-    /// Resolves whether a '.' character belongs to an ordered list item or plain text.
+    /// Resolves whether a '.' character belongs to an ordered list item,
+    /// an inferred link, or plain text.
+    ///
+    /// Email and SMS links are too vague, so they are not inferred.
+    /// All other link types are too niche.
+    /// URIs without a scheme must have a suitable TLD (see `PRE_ICANN_TLD`).
     #[must_use]
-    fn handle_dot(&mut self, tape: Tape<'a, u8>) -> Option<Tape<'a, u8>> {
+    fn handle_dot(&mut self, mut tape: Tape<'a, u8>, infer_links: bool) -> Option<Tape<'a, u8>> {
         if tape.is_cur_prefix() {
             self.emit_inplace(
                 tape,
@@ -495,18 +534,36 @@ impl<'a> Scanner<'a> {
             return Some(tape);
         }
         let prev = tape.peek_back();
-        if prev.is_none() || !tape.is_prefix(tape.pos - 1) {
+        if prev.is_none() {
             return None;
         }
-        self.emit(
-            Token::ListItemMarker {
-                indent: tape.count_indent(),
-                kind: ListItemKind::Numbered(Numbering::from_marker(prev.unwrap())?),
-            },
-            tape.pos - 1,
-            tape.pos + 1,
-        );
-        self.pgraph_spacing = 1;
+        if tape.is_prefix(tape.pos - 1) {
+            self.emit(
+                Token::ListItemMarker {
+                    indent: tape.count_indent(),
+                    kind: ListItemKind::Numbered(Numbering::from_marker(prev.unwrap())?),
+                },
+                tape.pos - 1,
+                tape.pos + 1,
+            );
+            self.pgraph_spacing = 1;
+            return Some(tape);
+        }
+        if !infer_links {
+            return None;
+        }
+        tape.seek_back(|ch, _| ch.is_file_ws());
+        tape.adv();
+        let start = tape.pos;
+        let href = tape.consume(|ch, _| !ch.is_file_ws());
+        let link = LINK_FINDER.links(str::from_utf8(href).ok()?).next()?;
+        if *link.kind() == LinkKind::Url
+            && !link.as_str().contains("//")
+            && !PRE_ICANN_TLD.contains(&link.as_str().as_bytes().tld())
+        {
+            return None;
+        }
+        self.emit(Token::InferredLink { href }, start, tape.pos);
         Some(tape)
     }
 

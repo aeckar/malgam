@@ -190,6 +190,7 @@ pub enum Token<'a> {
     Literal { ch: u8 },                // preceded by `\`
     LinkBody { href: &'a [u8] },       // ]( )
     LinkAliasBody { alias: &'a [u8] }, // ][ ]
+    InferredLink { href: &'a [u8] },
     LinkMarker,
     EmbedMarker,
     MacroHandle { name: &'a [u8] },   // \

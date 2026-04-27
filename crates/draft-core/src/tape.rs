@@ -23,11 +23,67 @@ use crate::ext::CharExt;
 /// It is not guaranteed to be within the acceptable range of indices at any given point,
 /// but member functions assume so.
 ///
+/// # API
+///
+/// ## Indexing
+/// Returns `Option<T>`.
+///
+/// | Function | Returns | Side Effects |
+/// | :--- | :--- | :--- |
+/// | `cur` | Character at current position | None |
+/// | `next` | Character at current position | Advances `pos` after index |
+/// | `peek` | Character after current position | None |
+/// | `peek_back` | Character before current position | None |
+///
+/// ## Scanning
+/// | Function | Purpose | Returns |
+/// | :--- | :--- | :--- |
+/// | `poll`/`poll_back` | Find position of character forward/backward | `Option<usize>` |
+/// | `consume`/`put_back` | Jump over substring forward/backward | `&[T]` |
+/// | `seek`/`seek_back` | Jump to character forward/backward if it exists | `bool` |
+///
+/// ## u8 Specializations
+///
+/// ### Optimized Seek
+/// Jumps to the target and returns `bool`. Optimized using Two-Way search algorithm.
+///
+/// | Function | Target |
+/// | :--- | :--- |
+/// | `seek_ch` | Character |
+/// | `seek_ch2` | String (len = 2) |
+/// | `seek_ch3` | String (len = 3) |
+/// | `seek_ch_in_pgraph` | Character w.r.t. spacing |
+///
+/// ### Other Seek
+/// Jumps to the target and returns `bool`.
+///
+/// | Function | Target |
+/// | :--- | :--- |
+/// | `seek_at` | String |
+/// | `seek_at_in_pgraph` | String w.r.t. spacing |
+/// | `seek_in_pgraph` | Character w.r.t. spacing |
+///
+/// ### Spatial Logic
+/// Whether a character is considered whitespace is determined by `CharExt.is_file_ws`.
+///
+/// | Function | Predicate (Returns `bool`) |
+/// | :--- | :--- |
+/// | `is_any_clear` | Whitespace before AND after |
+/// | `is_l_clear` | Whitespace before |
+/// | `is_r_clear` | Whitespace after |
+/// | `is_prefix` | First non-whitespace character in line at index |
+/// | `is_cur_prefix` | First non-whitespace character in current line |
+///
+/// ### Miscellaneous
+/// | Function | Purpose | Returns |
+/// | :--- | :--- | :--- |
+/// | `count_indent` | Counts leading tabs in the current line | `usize` |
+///
 /// # Implementation
 /// `#[inline(always)]` should be restricted to functions called often in the
 /// main `Scanner`/`Grammar` recursions, where the benefit of inlining is completely certain.
 ///
-/// Hide `raw` from users to promote orthogonality.
+/// `raw` should be hidden from users to promote orthogonality.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deref)]
 pub struct Tape<'a, T> {
     #[deref]
@@ -41,7 +97,7 @@ impl<'a, T> Tape<'a, T> {
     pub const fn new(raw: &'a [T]) -> Self {
         Self { raw, pos: 0 }
     }
-    
+
     /// Returns a subslice over the original slice from the current position.
     #[inline(always)]
     pub fn rest(self) -> &'a [T] {
@@ -190,6 +246,24 @@ impl<'a, T: Copy + PartialEq> Tape<'a, T> {
         }
     }
 
+    /// Decrements `pos` to the first index where `pred` is true.
+    ///
+    /// Returns `true` if found and `pos` is left pointing at the match,
+    /// or `false` and `pos` is restored to its original value.
+    #[inline]
+    pub fn seek_back<F>(&mut self, pred: F) -> bool
+    where
+        F: FnMut(T, usize) -> bool,
+    {
+        match self.poll_back(pred) {
+            None => false,
+            Some(pos) => {
+                self.pos = pos;
+                true
+            }
+        }
+    }
+
     /// Returns true if the substring starting at the current position
     /// starts with the given string.
     #[must_use]
@@ -201,6 +275,16 @@ impl<'a, T: Copy + PartialEq> Tape<'a, T> {
 
 /// `elem` should be used as lambda argument in case any function should be made generic.
 impl<'a> Tape<'a, u8> {
+    /// Returns true if the substring starting at the current position
+    /// starts with the given key in object notation.
+    ///
+    /// See `CharExt` for more details.
+    #[must_use]
+    #[inline]
+    pub fn is_at_file_key(self, query: &u8) -> bool {
+        // !!!!
+    }
+
     /// Returns true if the character at the given position has clearance on its left side.
     #[must_use]
     #[inline]
@@ -290,7 +374,6 @@ impl<'a> Tape<'a, u8> {
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
     ///
-    ///
     /// Optimized for single byte search using SIMD.
     #[inline]
     pub fn seek_ch2(&mut self, ch0: u8, ch1: u8) -> bool {
@@ -305,7 +388,6 @@ impl<'a> Tape<'a, u8> {
     ///
     /// Returns `true` if found and `pos` is left pointing at the match,
     /// or `false` and `pos` is restored to its original value.
-    ///
     ///
     /// Optimized for single byte search using SIMD.
     #[inline]
@@ -388,7 +470,7 @@ impl<'a> Tape<'a, u8> {
     #[inline]
     pub fn is_prefix(self, pos: usize) -> bool {
         for i in (0..pos).rev() {
-            let c = self.raw[i]; // This is safe because i < self.pos
+            let c = self.raw[i]; // this is safe because i < self.pos
             if c == b'\n' {
                 return true;
             }

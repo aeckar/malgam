@@ -161,7 +161,7 @@ macro_rules! rule {
 ///     | macro
 ///
 /// format := InlineFormat & paragraph & InlineFormat
-/// link := LinkMarker & linkTarget
+/// link := InferredLink | LinkMarker & linkTarget
 /// embed := EmbedMarker & linkTarget
 /// linkTarget := LinkBody | LinkAliasBody
 ///
@@ -313,7 +313,7 @@ impl<'a> Grammar {
         Some((node::branch(rule::Format, vec![a, b, c], meta::None), tape))
     });
 
-    rule!(link, |mut tape| {
+    rule!(link, |mut tape| {//fixme
         let a = try_token!(tape, LinkMarker)?;
         let (b, tape) = Self::link_target(tape)?;
         Some((node::branch(rule::Link, vec![a, b], meta::None), tape))
