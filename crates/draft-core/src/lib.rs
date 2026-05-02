@@ -16,16 +16,13 @@ mod tape;
 pub mod markup;
 
 #[cfg(feature = "parse-data")]
-pub mod data;
-
-#[cfg(feature = "parse-expressions")]
-pub mod expr;
+pub mod object;
 
 #[cfg(feature = "macros")]
 pub mod macros;
 
 #[cfg(feature = "formatter")]
-pub mod fmt;
+pub mod formatter;
 
 pub mod prelude {
     pub use super::{compile::*, ext::*, tape::*};

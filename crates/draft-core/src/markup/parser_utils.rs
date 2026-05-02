@@ -91,8 +91,12 @@ impl<'a> SymbolKind for NodeKind<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeMetadata {
+    // 0-indexed option choice.
     Choice(u8),
+
+    // If true, target of optional was matched.
     IsPresent(bool),
+
     ListItem {
         kind: ListItemKind,
         pos: ListItemPos,

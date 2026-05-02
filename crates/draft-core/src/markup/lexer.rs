@@ -5,11 +5,11 @@ use simdutf8::basic::{self, Utf8Error};
 use thiserror::Error;
 
 use crate::{
-    data::{DataSyntax, DataValue},
     markup::{
         config::{DynConf, StaticConf},
         lex::{CheckboxType, InlineFormat, ListItemKind, Numbering, Token, TokenSpan},
     },
+    object::{Object, ObjectSyntax},
     prelude::*,
     tape::Tape,
 };
@@ -120,6 +120,7 @@ impl<'a> MarkupSyntax<'a> {
                 b']' => scan.handle_cbrac(tape),
                 b'=' => scan.handle_equals(tape),
                 b'"' | b'\'' => scan.handle_quote(tape, tape[tape.pos]),
+                b'{' => scan.handle_curly(tape),
                 b'\\' => scan.handle_bslash(tape),
                 b';' => {
                     // divider comment ';;' handled by editor
@@ -248,7 +249,7 @@ struct Scanner<'a> {
     /// URL was found.
     not_a_url: Vec<usize>,
 
-    data_values: Vec<DataValue>,
+    data_values: Vec<Object>,
 }
 
 impl<'a> Scanner<'a> {
@@ -267,6 +268,8 @@ impl<'a> Scanner<'a> {
         self.tokens
             .push(TokenSpan::new(token, tape.pos, tape.pos + len));
     }
+
+    fn handle_curly(&mut self, mut tape: Tape<'a, u8>) {}
 
     /// Attempts to emit a token if the character cluster
     /// belongs to a flanking token, such as an inline format or link.
@@ -468,9 +471,9 @@ impl<'a> Scanner<'a> {
         tape.consume(|ch, _| ch.is_file_ws());
         tape.next().filter(|&ch| ch == b'=')?;
         tape.consume(|ch, _| ch.is_file_ws());
-        let (value, len) = DataSyntax::new(str::from_utf8(tape.rest()).ok()?)
+        let (value, len) = ObjectSyntax::new(str::from_utf8(tape.rest()).ok()?)
             .compile()
-            .ok()?;
+            .ok()?; // todo warn thru lsp
         tape.pos += len;
         self.emit(
             Token::Assignment {
@@ -762,14 +765,14 @@ impl<'a> Scanner<'a> {
         }
         let start = tape.pos; // keep for macro handle token
         tape.adv(); // skip past '\'
-        let name = tape.consume(|ch, _| ch.is_ascii_alphabetic());
+        let name = tape.consume_file_key();
         if name.len() == 0 {
             // treat as escape
             return Some(tape); // stop at the character after '\'
         }
         let mut next_pos = tape.pos;
-        let mut next = tape.cur();
-        if next.is_none_or(|ch| ch != b'[' && ch != b'{') {
+        let mut cur = tape.cur();
+        if cur.is_none_or(|ch| ch != b'[' && ch != b'{') {
             // treat as incomplete macro
             return Some(tape); // stop at the first non-WS character after the macro name
         }
@@ -778,27 +781,47 @@ impl<'a> Scanner<'a> {
             start,
             start + name.len() + 1,
         ));
-        if next == Some(b'[') {
-            if !tape.seek_ch(b']') {
+        if cur == Some(b'(') {
+            if !tape.seek_ch(b')') {
                 // treat as incomplete macro
-                return Some(tape); // stop at '['
+                tape.dec();
+                return Some(tape); // stop before '('
             }
-            tape.adv(); // skip past ']'
+            tape.adv(); // skip past ')'
             self.emit(
-                Token::MacroArgs {
+                Token::MacroDeco {
                     body: &tape[next_pos + 1..tape.pos],
                 },
                 next_pos,
                 tape.pos,
             );
             next_pos = tape.pos;
-            next = tape.cur();
+            cur = tape.cur();
+            // stop after ')'
+        }
+        if cur == Some(b'[') {
+            if !tape.seek_ch(b']') {
+                // treat as incomplete macro
+                tape.dec();
+                return Some(tape); // stop before '['
+            }
+            tape.adv(); // skip past ']'
+            self.emit(
+                Token::MacroConfig {
+                    body: &tape[next_pos + 1..tape.pos],
+                },
+                next_pos,
+                tape.pos,
+            );
+            next_pos = tape.pos;
+            cur = tape.cur();
             // stop after ']'
         }
-        while next == Some(b'{') {
+        while cur == Some(b'{') {
             if !tape.seek_ch(b'}') {
                 // treat as incomplete macro
-                return Some(tape); // stop at '{'
+                tape.dec();
+                return Some(tape); // stop before '{'
             }
             tape.adv(); // skip past '}'
             self.emit(
@@ -809,7 +832,7 @@ impl<'a> Scanner<'a> {
                 tape.pos,
             );
             next_pos = tape.pos;
-            next = tape.cur();
+            cur = tape.cur();
             // stop after '}'
         }
         Some(tape)

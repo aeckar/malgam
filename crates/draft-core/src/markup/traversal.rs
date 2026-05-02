@@ -79,6 +79,7 @@ pub trait AstVisitor<'a> {
     visits!(literal);
     visits!(link_body);
     visits!(link_alias_body);
+    visits!(inferred_link);
     visits!(link_marker);
     visits!(embed_marker);
     visits!(macro_handle);

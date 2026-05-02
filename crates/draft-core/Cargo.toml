@@ -7,8 +7,6 @@ license = "AGPL-3.0-only"                                # disallow competitors 
 homepage = "https://github.com/aeckar/draft"
 repository = "https://github.com/aeckar/draft"
 
-# todo minify features
-
 [dependencies]
 thiserror = "2.0.18"
 pastey = "0.2.1"
@@ -64,8 +62,7 @@ unindent = { version = "0.2.4", optional = true }
 default = ["full"] # todo change to "parse-markup" after implementation 
 full = [
     "parse-markup",
-    "parse-data",
-    "parse-expressions",
+    "parse-object",
     "formatter",
     "to-html",
     "to-markdown",
@@ -74,9 +71,8 @@ full = [
     "serde",
 ]
 
-parse-markup = ["parse-data", "parse-expressions", "dep:strum"]
-parse-data = ["dep:lexical-core", "dep:unindent"]
-parse-expressions = ["parse-data"]
+parse-markup = ["parse-object", "dep:strum"]
+parse-object = ["dep:lexical-core", "dep:unindent"]
 formatter = []
 to-html = [
     "parse-markup",
@@ -88,7 +84,7 @@ to-html = [
 to-markdown = ["macros", "parse-markup"]
 from-markdown = ["parse-markup", "dep:pulldown-cmark"]
 macros = ["dep:boa_engine", "dep:csv"]
-serde = ["parse-data", "dep:serde", "dep:serde_json"]
+serde = ["parse-object", "dep:serde", "dep:serde_json"]
 
 [lib]
 path = "src/lib.rs"

@@ -193,7 +193,7 @@ pub enum Token<'a> {
     InferredLink { href: &'a [u8] },
     LinkMarker,
     EmbedMarker,
-    MacroHandle { name: &'a [u8] },   // \
+    MacroHandle { name: &'a [u8] },   // \[ ]
     InlineCode { body: &'a [u8] },    // ` `
     InlineRawCode { body: &'a [u8] }, // `` ``
     InlineMath { body: &'a [u8] },    // $ $
@@ -205,13 +205,14 @@ pub enum Token<'a> {
     LineQuoteMarker,
     BlockQuoteOpen,
     BlockQuoteClose,
-    MacroArgs { body: &'a [u8] }, // [ ]
-    MacroBody { body: &'a [u8] }, // { }
+    MacroDeco { body: &'a [u8] },   // ( )
+    MacroConfig { body: &'a [u8] }, // [ ]
+    MacroBody { body: &'a [u8] },   // { }
     HeadingMarker { depth: u8 },
     CodeBlock { body: &'a [u8], lang: &'a [u8] },
     MathBlock { body: &'a [u8] },
     ListItemMarker { indent: u8, kind: ListItemKind },
-    Assignment { key: &'a [u8], value_idx: usize }, // [<key>]=<value>//todo works for citations via interpolation (`{paul}` => `[paul]=cite.{}`)
+    Assignment { key: &'a [u8], value_idx: usize },
     Eof, // necessary to find bound for trailing plaintext; pruned before parsing
 }
 

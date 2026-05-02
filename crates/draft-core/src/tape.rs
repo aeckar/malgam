@@ -22,7 +22,11 @@ use crate::ext::CharExt;
 /// The name *"pos"* is used to distinguish indices in a `Tape` from other data structures.
 /// It is not guaranteed to be within the acceptable range of indices at any given point,
 /// but member functions assume so.
-///
+/// 
+/// For ergonomics, exhaustion is typically checked by determining whether `cur()` or `next()`
+/// are `None`. However, this may also occur if the cursor is decremented to **before** the
+/// first element in the underlying slice. For a more comprehensive check, use `is_exhausted()`.
+/// 
 /// # API
 ///
 /// ## Indexing
@@ -94,12 +98,14 @@ pub struct Tape<'a, T> {
 
 impl<'a, T> Tape<'a, T> {
     #[inline]
+    #[must_use]
     pub const fn new(raw: &'a [T]) -> Self {
         Self { raw, pos: 0 }
     }
 
     /// Returns a subslice over the original slice from the current position.
     #[inline(always)]
+    #[must_use]
     pub fn rest(self) -> &'a [T] {
         &self.raw[self.pos..self.raw.len()]
     }
@@ -115,6 +121,11 @@ impl<'a, T> Tape<'a, T> {
     pub const fn dec(&mut self) {
         self.pos -= 1;
     }
+
+    /// Returns true if the cursor is past the last element.
+    pub const fn is_exhausted(&mut self) -> bool {
+        self.pos >= self.raw.len()
+    }
 }
 
 impl<'a, T: Copy + PartialEq> Tape<'a, T> {
@@ -125,6 +136,7 @@ impl<'a, T: Copy + PartialEq> Tape<'a, T> {
     ///
     /// If the tape is exhausted, `pos` will still be incremented.
     #[inline(always)]
+    #[must_use]
     pub fn next(&mut self) -> Option<T> {
         let elem = self.raw.get(self.pos);
         self.pos += 1;
@@ -275,14 +287,21 @@ impl<'a, T: Copy + PartialEq> Tape<'a, T> {
 
 /// `elem` should be used as lambda argument in case any function should be made generic.
 impl<'a> Tape<'a, u8> {
-    /// Returns true if the substring starting at the current position
-    /// starts with the given key in object notation.
+    /// Consumes the object let notation key at the current position,
+    /// returning it if one exists.
+    /// 
+    /// If one does not exist, an empty slice is returned.
     ///
     /// See `CharExt` for more details.
-    #[must_use]
     #[inline]
-    pub fn is_at_file_key(self, query: &u8) -> bool {
-        // !!!!
+    pub fn consume_file_key(&mut self) -> &'a [u8] {
+        if self.cur().is_none_or(|ch| !ch.is_file_key_start()) {
+            return &self.raw[0..0];
+        }
+        let start = self.pos;
+        self.adv();
+        let rest_len = self.consume(|ch, _| ch.is_file_key_part()).len();
+        &self.raw[start..start + 1 + rest_len]
     }
 
     /// Returns true if the character at the given position has clearance on its left side.

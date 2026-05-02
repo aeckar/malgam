@@ -313,10 +313,19 @@ impl<'a> Grammar {
         Some((node::branch(rule::Format, vec![a, b, c], meta::None), tape))
     });
 
-    rule!(link, |mut tape| {//fixme
-        let a = try_token!(tape, LinkMarker)?;
-        let (b, tape) = Self::link_target(tape)?;
-        Some((node::branch(rule::Link, vec![a, b], meta::None), tape))
+    //InferredLink | LinkMarker & linkTarget
+    rule!(link, |mut tape| {
+        match try_token!(tape, InferredLink) {
+            Some(a) => {
+                Some((node::branch(rule::Link, vec![a], meta::Choice(0)), tape))
+            }
+            None => {
+                let a = try_token!(tape, LinkMarker)?;
+                let (b, tape) = Self::link_target(tape)?;
+                let ab = node::branch(rule::None, vec![a, b], meta::None);
+                Some((node::branch(rule::Link, vec![ab], meta::Choice(1)), tape))
+            }
+        }
     });
 
     rule!(embed, |mut tape| {
@@ -382,7 +391,13 @@ impl<'a> Grammar {
         } else {
             let mut pos = ListItemPos::Any;
             let prev = parent.children.last_mut().unwrap();
-            unpack_token!(prev, ListItemMarker { indent: prev_indent, .. });
+            unpack_token!(
+                prev,
+                ListItemMarker {
+                    indent: prev_indent,
+                    ..
+                }
+            );
             if prev_indent > indent_a {
                 pos |= ListItemPos::First;
             } else if prev_indent < indent_a {
